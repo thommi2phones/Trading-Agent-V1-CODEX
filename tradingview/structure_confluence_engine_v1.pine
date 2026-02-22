@@ -237,6 +237,12 @@ autoPatternEnabled = input.bool(true, "Auto Pattern Heuristics")
 pivotLen = input.int(4, "Pattern Pivot Length", minval=2)
 impulseLen = input.int(12, "Pattern Impulse Length", minval=5)
 consLen = input.int(10, "Pattern Consolidation Length", minval=5)
+impulseAtrMin = input.float(1.8, "Pattern Impulse ATR Min", minval=0.5, step=0.1)
+flagMaxRangeAtr = input.float(3.2, "Flag Max Consolidation ATR", minval=1.0, step=0.1)
+pennantMaxRangeAtr = input.float(2.8, "Pennant Max Consolidation ATR", minval=0.8, step=0.1)
+patternMinConf = input.float(0.60, "Pattern Min Confidence", minval=0.4, maxval=0.9, step=0.05)
+compressionBars = input.int(12, "Compression Bars", minval=4)
+compressionRatioMax = input.float(0.75, "Compression Ratio Max", minval=0.2, maxval=1.0, step=0.05)
 
 ph = ta.pivothigh(high, pivotLen, pivotLen)
 pl = ta.pivotlow(low, pivotLen, pivotLen)
@@ -261,56 +267,68 @@ consRangePrev = ta.highest(high[consLen], consLen) - ta.lowest(low[consLen], con
 consContracting = consRangePrev > 0 ? consRange < consRangePrev : false
 slopeHigh = ta.linreg(high, consLen, 0) - ta.linreg(high, consLen, 1)
 slopeLow = ta.linreg(low, consLen, 0) - ta.linreg(low, consLen, 1)
+compressionRangeNow = ta.highest(high, compressionBars) - ta.lowest(low, compressionBars)
+compressionRangePrev = ta.highest(high[compressionBars], compressionBars) - ta.lowest(low[compressionBars], compressionBars)
+compressionRatio = compressionRangePrev > 0 ? compressionRangeNow / compressionRangePrev : 1.0
+isCompression = compressionRatio <= compressionRatioMax
 
-impulseDown = close[consLen + impulseLen] - close[consLen] > atr14 * 2.0
-impulseUp = close[consLen] - close[consLen + impulseLen] > atr14 * 2.0
-priorUptrend = close[consLen] > close[consLen + impulseLen]
-priorDowntrend = close[consLen] < close[consLen + impulseLen]
+poleLookback = impulseLen + consLen
+poleHigh = ta.highest(high, poleLookback)
+poleLow = ta.lowest(low, poleLookback)
+poleSizeAtr = atr14 > 0 ? (poleHigh - poleLow) / atr14 : 0.0
+recentDownBias = close < emaSlow or emaBearStack
+recentUpBias = close > emaSlow or emaBullStack
+impulseDown = poleSizeAtr >= impulseAtrMin and recentDownBias and close <= close[consLen]
+impulseUp = poleSizeAtr >= impulseAtrMin and recentUpBias and close >= close[consLen]
+priorUptrend = recentUpBias
+priorDowntrend = recentDownBias
 
 bf1 = impulseDown or priorDowntrend
-bf2 = consRangeAtr <= 2.2
+bf2 = consRangeAtr <= flagMaxRangeAtr
 bf3 = slopeHigh > 0 and slopeLow > 0
 bf4 = math.abs(slopeHigh - slopeLow) <= atr14 * 0.05
 bearFlagConf = (bf1 ? 1.0 : 0.0) + (bf2 ? 1.0 : 0.0) + (bf3 ? 1.0 : 0.0) + (bf4 ? 1.0 : 0.0)
 bearFlagConf := bearFlagConf / 4.0
-bearFlag = autoPatternEnabled and bearFlagConf >= 0.75 and emaBearStack
+bearFlag = autoPatternEnabled and bearFlagConf >= patternMinConf and recentDownBias
 bearFlagBreak = bearFlag and close < consLow[1]
 
 buf1 = impulseUp or priorUptrend
-buf2 = consRangeAtr <= 2.2
+buf2 = consRangeAtr <= flagMaxRangeAtr
 buf3 = slopeHigh < 0 and slopeLow < 0
 buf4 = math.abs(slopeHigh - slopeLow) <= atr14 * 0.05
 bullFlagConf = (buf1 ? 1.0 : 0.0) + (buf2 ? 1.0 : 0.0) + (buf3 ? 1.0 : 0.0) + (buf4 ? 1.0 : 0.0)
 bullFlagConf := bullFlagConf / 4.0
-bullFlag = autoPatternEnabled and bullFlagConf >= 0.75 and emaBullStack
+bullFlag = autoPatternEnabled and bullFlagConf >= patternMinConf and recentUpBias
 bullFlagBreak = bullFlag and close > consHigh[1]
 
 bp1 = impulseDown or priorDowntrend
-bp2 = consRangeAtr <= 2.0
+bp2 = consRangeAtr <= pennantMaxRangeAtr
 bp3 = slopeHigh < 0 and slopeLow > 0
 bp4 = consContracting
-bearPennantConf = (bp1 ? 1.0 : 0.0) + (bp2 ? 1.0 : 0.0) + (bp3 ? 1.0 : 0.0) + (bp4 ? 1.0 : 0.0)
-bearPennantConf := bearPennantConf / 4.0
-bearPennant = autoPatternEnabled and bearPennantConf >= 0.75 and emaBearStack
+bp5 = isCompression
+bearPennantConf = (bp1 ? 1.0 : 0.0) + (bp2 ? 1.0 : 0.0) + (bp3 ? 1.0 : 0.0) + (bp4 ? 1.0 : 0.0) + (bp5 ? 1.0 : 0.0)
+bearPennantConf := bearPennantConf / 5.0
+bearPennant = autoPatternEnabled and bearPennantConf >= patternMinConf and recentDownBias
 bearPennantBreak = bearPennant and close < consLow[1]
 
 bup1 = impulseUp or priorUptrend
-bup2 = consRangeAtr <= 2.0
+bup2 = consRangeAtr <= pennantMaxRangeAtr
 bup3 = slopeHigh < 0 and slopeLow > 0
 bup4 = consContracting
-bullPennantConf = (bup1 ? 1.0 : 0.0) + (bup2 ? 1.0 : 0.0) + (bup3 ? 1.0 : 0.0) + (bup4 ? 1.0 : 0.0)
-bullPennantConf := bullPennantConf / 4.0
-bullPennant = autoPatternEnabled and bullPennantConf >= 0.75 and emaBullStack
+bup5 = isCompression
+bullPennantConf = (bup1 ? 1.0 : 0.0) + (bup2 ? 1.0 : 0.0) + (bup3 ? 1.0 : 0.0) + (bup4 ? 1.0 : 0.0) + (bup5 ? 1.0 : 0.0)
+bullPennantConf := bullPennantConf / 5.0
+bullPennant = autoPatternEnabled and bullPennantConf >= patternMinConf and recentUpBias
 bullPennantBreak = bullPennant and close > consHigh[1]
 
 dtOrder = not na(phBar0) and not na(phBar1) and not na(plBar0) and plBar0 > phBar1 and plBar0 < phBar0
 dtPeaks = not na(ph0) and not na(ph1) and math.abs(ph0 - ph1) <= atr14 * 0.8
 dtDip = not na(pl0) and not na(ph0) and not na(ph1) and (math.min(ph0, ph1) - pl0) >= atr14 * 1.0
 dtSep = not na(phBar0) and not na(phBar1) and math.abs(phBar0 - phBar1) >= pivotLen * 3
-dtTrend = priorUptrend and emaFast > emaSlow
+dtTrend = priorUptrend and close > emaSlow and emaFast > emaSlow
 doubleTopConf = (dtOrder ? 1.0 : 0.0) + (dtPeaks ? 1.0 : 0.0) + (dtDip ? 1.0 : 0.0) + (dtSep ? 1.0 : 0.0) + (dtTrend ? 1.0 : 0.0)
 doubleTopConf := doubleTopConf / 5.0
-doubleTop = autoPatternEnabled and doubleTopConf >= 0.70 and dtTrend
+doubleTop = autoPatternEnabled and doubleTopConf >= 0.75 and dtTrend
 doubleTopBreak = doubleTop and close < pl0
 
 hsOrder = not na(phBar2) and not na(plBar1) and not na(phBar1) and not na(plBar0) and not na(phBar0) and phBar2 < plBar1 and plBar1 < phBar1 and phBar1 < plBar0 and plBar0 < phBar0
@@ -496,6 +514,8 @@ payload += ",\"auto_pattern_strong\":" + str.tostring(autoPatternStrong)
 payload += ",\"auto_pattern_trigger\":" + str.tostring(autoPatternTrigger)
 payload += ",\"auto_pattern_aligned\":" + str.tostring(autoPatternAligned)
 payload += ",\"auto_pattern_overruled_by_manual\":" + str.tostring(autoPatternOverruledByManual)
+payload += ",\"compression_ratio\":" + str.tostring(compressionRatio)
+payload += ",\"is_compression\":" + str.tostring(isCompression)
 payload += ",\"auto_bear_flag\":" + str.tostring(bearFlag)
 payload += ",\"auto_bear_pennant\":" + str.tostring(bearPennant)
 payload += ",\"auto_head_shoulders\":" + str.tostring(headShoulders)
