@@ -5,7 +5,10 @@
 - Validates required payload fields
 - Adds mismatch flags
 - Logs every event to `webhook/data/events.ndjson`
+- Writes latest event snapshot to `webhook/data/latest.json`
+- Exposes event APIs for UI (`/events`, `/events/latest`)
 - Optionally forwards events to your agent endpoint
+- Optionally writes normalized agent packets to a local inbox directory
 
 ## 1) Run locally
 ```bash
@@ -16,6 +19,13 @@ PORT=8787 node webhook/server.js
 Health check:
 ```bash
 curl http://localhost:8787/health
+```
+
+Event APIs:
+```bash
+curl "http://localhost:8787/events/latest"
+curl "http://localhost:8787/events?limit=20"
+curl "http://localhost:8787/events?limit=50&setup_id=setup_001"
 ```
 
 ## 2) Test with sample payload
@@ -47,14 +57,16 @@ AGENT_FORWARD_URL="https://your-agent-gateway.example.com/inbound"
 AGENT_FORWARD_BEARER="your_api_token"
 ```
 
-The receiver will POST this event envelope:
+Optional local file handoff to Claude trading-agent files:
+```bash
+AGENT_INBOX_DIR="/absolute/path/to/claude-trading-agent/inbox"
+```
+
+Forwarded body now includes both raw event + normalized agent packet:
 ```json
 {
-  "received_at": "...",
-  "source": "tradingview",
-  "missing_fields": [],
-  "mismatch_flags": [],
-  "payload": { "...": "original TradingView payload" }
+  "event": { "...": "raw webhook event" },
+  "agent_packet": { "...": "normalized agent-ready structure" }
 }
 ```
 

@@ -3,9 +3,10 @@
 ## Flow
 1. TradingView script emits JSON payload on bar close.
 2. TradingView alert sends POST to webhook URL.
-3. Webhook validates/logs event.
-4. Webhook forwards event to your agent endpoint.
-5. Agent merges payload + screenshot analysis.
+3. Webhook validates/logs event and normalizes agent packet.
+4. Webhook stores event snapshots for UI/API access.
+5. Webhook forwards event + packet to your agent endpoint.
+6. Agent merges payload + screenshot analysis.
 
 ## Step 1: Start webhook receiver
 ```bash
@@ -33,6 +34,12 @@ curl -X POST "http://localhost:8787/tv-webhook" \
 Expected:
 ```json
 {"ok":true,"accepted":true,...}
+```
+
+Optional read APIs for UI:
+```bash
+curl "http://localhost:8787/events/latest"
+curl "http://localhost:8787/events?limit=20"
 ```
 
 ## Step 4: Make webhook URL reachable from TradingView
@@ -67,6 +74,15 @@ AGENT_FORWARD_URL="https://your-agent-gateway.example.com/inbound" \
 AGENT_FORWARD_BEARER="your_api_token" \
 node webhook/server.js
 ```
+
+Optional local Claude file integration:
+```bash
+PORT=8787 \
+AGENT_INBOX_DIR="/absolute/path/to/claude-trading-agent/inbox" \
+node webhook/server.js
+```
+
+Each accepted event writes an agent packet JSON file into that inbox directory.
 
 ## Step 8: Production hardening
 1. Deploy receiver on HTTPS domain (no tunnel).
