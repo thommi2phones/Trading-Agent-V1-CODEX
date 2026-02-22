@@ -264,49 +264,53 @@ slopeLow = ta.linreg(low, consLen, 0) - ta.linreg(low, consLen, 1)
 
 impulseDown = close[consLen + impulseLen] - close[consLen] > atr14 * 2.0
 impulseUp = close[consLen] - close[consLen + impulseLen] > atr14 * 2.0
+priorUptrend = close[consLen] > close[consLen + impulseLen]
+priorDowntrend = close[consLen] < close[consLen + impulseLen]
 
-bf1 = impulseDown
+bf1 = impulseDown or priorDowntrend
 bf2 = consRangeAtr <= 2.2
 bf3 = slopeHigh > 0 and slopeLow > 0
 bf4 = math.abs(slopeHigh - slopeLow) <= atr14 * 0.05
 bearFlagConf = (bf1 ? 1.0 : 0.0) + (bf2 ? 1.0 : 0.0) + (bf3 ? 1.0 : 0.0) + (bf4 ? 1.0 : 0.0)
 bearFlagConf := bearFlagConf / 4.0
-bearFlag = autoPatternEnabled and bearFlagConf >= 0.75
+bearFlag = autoPatternEnabled and bearFlagConf >= 0.75 and emaBearStack
 bearFlagBreak = bearFlag and close < consLow[1]
 
-buf1 = impulseUp
+buf1 = impulseUp or priorUptrend
 buf2 = consRangeAtr <= 2.2
 buf3 = slopeHigh < 0 and slopeLow < 0
 buf4 = math.abs(slopeHigh - slopeLow) <= atr14 * 0.05
 bullFlagConf = (buf1 ? 1.0 : 0.0) + (buf2 ? 1.0 : 0.0) + (buf3 ? 1.0 : 0.0) + (buf4 ? 1.0 : 0.0)
 bullFlagConf := bullFlagConf / 4.0
-bullFlag = autoPatternEnabled and bullFlagConf >= 0.75
+bullFlag = autoPatternEnabled and bullFlagConf >= 0.75 and emaBullStack
 bullFlagBreak = bullFlag and close > consHigh[1]
 
-bp1 = impulseDown
+bp1 = impulseDown or priorDowntrend
 bp2 = consRangeAtr <= 2.0
 bp3 = slopeHigh < 0 and slopeLow > 0
 bp4 = consContracting
 bearPennantConf = (bp1 ? 1.0 : 0.0) + (bp2 ? 1.0 : 0.0) + (bp3 ? 1.0 : 0.0) + (bp4 ? 1.0 : 0.0)
 bearPennantConf := bearPennantConf / 4.0
-bearPennant = autoPatternEnabled and bearPennantConf >= 0.75
+bearPennant = autoPatternEnabled and bearPennantConf >= 0.75 and emaBearStack
 bearPennantBreak = bearPennant and close < consLow[1]
 
-bup1 = impulseUp
+bup1 = impulseUp or priorUptrend
 bup2 = consRangeAtr <= 2.0
 bup3 = slopeHigh < 0 and slopeLow > 0
 bup4 = consContracting
 bullPennantConf = (bup1 ? 1.0 : 0.0) + (bup2 ? 1.0 : 0.0) + (bup3 ? 1.0 : 0.0) + (bup4 ? 1.0 : 0.0)
 bullPennantConf := bullPennantConf / 4.0
-bullPennant = autoPatternEnabled and bullPennantConf >= 0.75
+bullPennant = autoPatternEnabled and bullPennantConf >= 0.75 and emaBullStack
 bullPennantBreak = bullPennant and close > consHigh[1]
 
 dtOrder = not na(phBar0) and not na(phBar1) and not na(plBar0) and plBar0 > phBar1 and plBar0 < phBar0
 dtPeaks = not na(ph0) and not na(ph1) and math.abs(ph0 - ph1) <= atr14 * 0.8
 dtDip = not na(pl0) and not na(ph0) and not na(ph1) and (math.min(ph0, ph1) - pl0) >= atr14 * 1.0
-doubleTopConf = (dtOrder ? 1.0 : 0.0) + (dtPeaks ? 1.0 : 0.0) + (dtDip ? 1.0 : 0.0)
-doubleTopConf := doubleTopConf / 3.0
-doubleTop = autoPatternEnabled and doubleTopConf >= 0.67
+dtSep = not na(phBar0) and not na(phBar1) and math.abs(phBar0 - phBar1) >= pivotLen * 3
+dtTrend = priorUptrend and emaFast > emaSlow
+doubleTopConf = (dtOrder ? 1.0 : 0.0) + (dtPeaks ? 1.0 : 0.0) + (dtDip ? 1.0 : 0.0) + (dtSep ? 1.0 : 0.0) + (dtTrend ? 1.0 : 0.0)
+doubleTopConf := doubleTopConf / 5.0
+doubleTop = autoPatternEnabled and doubleTopConf >= 0.70 and dtTrend
 doubleTopBreak = doubleTop and close < pl0
 
 hsOrder = not na(phBar2) and not na(plBar1) and not na(phBar1) and not na(plBar0) and not na(phBar0) and phBar2 < plBar1 and plBar1 < phBar1 and phBar1 < plBar0 and plBar0 < phBar0
@@ -332,37 +336,37 @@ autoPatternBias = "neutral"
 autoPatternConf = 0.0
 autoPatternTrigger = false
 
-if bearFlagConf > autoPatternConf
+if bearFlag and bearFlagConf > autoPatternConf
     autoPattern := "bear_flag"
     autoPatternBias := "bearish"
     autoPatternConf := bearFlagConf
     autoPatternTrigger := bearFlagBreak
-if bullFlagConf > autoPatternConf
+if bullFlag and bullFlagConf > autoPatternConf
     autoPattern := "bull_flag"
     autoPatternBias := "bullish"
     autoPatternConf := bullFlagConf
     autoPatternTrigger := bullFlagBreak
-if bearPennantConf > autoPatternConf
+if bearPennant and bearPennantConf > autoPatternConf
     autoPattern := "bear_pennant"
     autoPatternBias := "bearish"
     autoPatternConf := bearPennantConf
     autoPatternTrigger := bearPennantBreak
-if bullPennantConf > autoPatternConf
+if bullPennant and bullPennantConf > autoPatternConf
     autoPattern := "bull_pennant"
     autoPatternBias := "bullish"
     autoPatternConf := bullPennantConf
     autoPatternTrigger := bullPennantBreak
-if doubleTopConf > autoPatternConf
+if doubleTop and doubleTopConf > autoPatternConf
     autoPattern := "double_top"
     autoPatternBias := "bearish"
     autoPatternConf := doubleTopConf
     autoPatternTrigger := doubleTopBreak
-if hsConf > autoPatternConf
+if headShoulders and hsConf > autoPatternConf
     autoPattern := "head_shoulders"
     autoPatternBias := "bearish"
     autoPatternConf := hsConf
     autoPatternTrigger := headShouldersBreak
-if cupHandleConf > autoPatternConf
+if cupHandle and cupHandleConf > autoPatternConf
     autoPattern := "cup_handle"
     autoPatternBias := "bullish"
     autoPatternConf := cupHandleConf
@@ -370,6 +374,7 @@ if cupHandleConf > autoPatternConf
 
 autoPatternStrong = autoPatternEnabled and autoPatternConf >= 0.70
 autoPatternAligned = (patternBias == "bullish" and autoPatternBias == "bullish") or (patternBias == "bearish" and autoPatternBias == "bearish")
+autoPatternOverruledByManual = autoPatternStrong and patternConfirmed and patternBias != "neutral" and not autoPatternAligned
 
 // -------------------------
 // Confluence scoring aligned to your priority order
@@ -490,6 +495,7 @@ payload += ",\"auto_pattern_conf\":" + str.tostring(autoPatternConf)
 payload += ",\"auto_pattern_strong\":" + str.tostring(autoPatternStrong)
 payload += ",\"auto_pattern_trigger\":" + str.tostring(autoPatternTrigger)
 payload += ",\"auto_pattern_aligned\":" + str.tostring(autoPatternAligned)
+payload += ",\"auto_pattern_overruled_by_manual\":" + str.tostring(autoPatternOverruledByManual)
 payload += ",\"auto_bear_flag\":" + str.tostring(bearFlag)
 payload += ",\"auto_bear_pennant\":" + str.tostring(bearPennant)
 payload += ",\"auto_head_shoulders\":" + str.tostring(headShoulders)
