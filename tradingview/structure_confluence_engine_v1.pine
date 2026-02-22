@@ -1,0 +1,318 @@
+//@version=5
+indicator("TA Codex - Structure Confluence Engine v1", overlay=true, max_labels_count=500)
+
+// ============================================
+// USER-DRAWN STRUCTURE (PATTERN + LEVEL) MODEL
+// ============================================
+// Note: Complex pattern recognition (HnS/CnH/flags) is visual-first in your workflow.
+// This script focuses on objective confirmation data for your external agent.
+
+// -------------------------
+// Inputs: Thanos EMA Cluster
+// -------------------------
+emaFastLen = input.int(8, "EMA Fast", minval=1)
+emaMid1Len = input.int(21, "EMA Mid 1", minval=1)
+emaMid2Len = input.int(34, "EMA Mid 2", minval=1)
+emaSlowLen = input.int(55, "EMA Slow", minval=1)
+compressionAtrMult = input.float(0.20, "EMA Compression ATR Mult", minval=0.01, step=0.01)
+
+emaFast = ta.ema(close, emaFastLen)
+emaMid1 = ta.ema(close, emaMid1Len)
+emaMid2 = ta.ema(close, emaMid2Len)
+emaSlow = ta.ema(close, emaSlowLen)
+atr14 = ta.atr(14)
+
+emaBullStack = emaFast > emaMid1 and emaMid1 > emaMid2 and emaMid2 > emaSlow
+emaBearStack = emaFast < emaMid1 and emaMid1 < emaMid2 and emaMid2 < emaSlow
+emaCompressed = math.abs(emaFast - emaMid2) <= atr14 * compressionAtrMult
+
+plot(emaFast, "EMA Fast", color=color.new(color.white, 0), linewidth=1)
+plot(emaMid1, "EMA Mid 1", color=color.new(color.yellow, 0), linewidth=1)
+plot(emaMid2, "EMA Mid 2", color=color.new(color.orange, 0), linewidth=1)
+plot(emaSlow, "EMA Slow", color=color.new(color.red, 0), linewidth=1)
+
+// -------------------------
+// Inputs: RSI (structure use)
+// -------------------------
+rsiLen = input.int(14, "RSI Length", minval=2)
+rsi = ta.rsi(close, rsiLen)
+rsiBullRegime = rsi > 50
+rsiBearRegime = rsi < 50
+rsiCrossUp50 = ta.crossover(rsi, 50)
+rsiCrossDown50 = ta.crossunder(rsi, 50)
+
+// -------------------------
+// Inputs: MACD Histogram
+// -------------------------
+macdFast = input.int(12, "MACD Fast", minval=1)
+macdSlow = input.int(26, "MACD Slow", minval=1)
+macdSignal = input.int(9, "MACD Signal", minval=1)
+[macdLine, signalLine, macdHist] = ta.macd(close, macdFast, macdSlow, macdSignal)
+macdBullExpand = macdHist > 0 and macdHist > macdHist[1]
+macdBearExpand = macdHist < 0 and macdHist < macdHist[1]
+
+// -------------------------
+// Inputs: TTM-style squeeze
+// -------------------------
+sqzLen = input.int(20, "Squeeze Length", minval=5)
+bbMult = input.float(2.0, "BB Mult", minval=0.1, step=0.1)
+kcMult = input.float(1.5, "KC Mult", minval=0.1, step=0.1)
+
+basis = ta.sma(close, sqzLen)
+dev = ta.stdev(close, sqzLen) * bbMult
+bbUpper = basis + dev
+bbLower = basis - dev
+kcUpper = basis + ta.atr(sqzLen) * kcMult
+kcLower = basis - ta.atr(sqzLen) * kcMult
+
+squeezeOn = bbUpper < kcUpper and bbLower > kcLower
+squeezeRelease = not squeezeOn and squeezeOn[1]
+
+// -------------------------
+// Inputs: Historical key level proxy (blue dashed)
+// -------------------------
+levelLookback = input.int(80, "Historical Level Lookback", minval=20)
+levelToleranceAtr = input.float(0.15, "Level Touch ATR Tolerance", minval=0.01, step=0.01)
+
+priorRangeHigh = ta.highest(high, levelLookback)
+priorRangeLow = ta.lowest(low, levelLookback)
+levelTol = atr14 * levelToleranceAtr
+
+atHighLevel = math.abs(close - priorRangeHigh) <= levelTol
+atLowLevel = math.abs(close - priorRangeLow) <= levelTol
+breakAboveLevel = close > priorRangeHigh[1]
+breakBelowLevel = close < priorRangeLow[1]
+
+plot(priorRangeHigh, "Proxy Key High", color=color.new(color.blue, 30), linewidth=1, style=plot.style_linebr)
+plot(priorRangeLow, "Proxy Key Low", color=color.new(color.blue, 30), linewidth=1, style=plot.style_linebr)
+
+// -------------------------
+// Inputs: Manual Fib levels by significance color
+// -------------------------
+useManualFib = input.bool(true, "Use Manual Fib Levels")
+
+fibW1 = input.float(na, "Fib White 1")
+fibW2 = input.float(na, "Fib White 2")
+fibW3 = input.float(na, "Fib White 3")
+
+fibY1 = input.float(na, "Fib Yellow 1")
+fibY2 = input.float(na, "Fib Yellow 2")
+fibY3 = input.float(na, "Fib Yellow 3")
+
+fibG1 = input.float(na, "Fib Green 1")
+fibG2 = input.float(na, "Fib Green 2")
+fibG3 = input.float(na, "Fib Green 3")
+
+fibTolAtr = input.float(0.12, "Fib Proximity ATR Tolerance", minval=0.01, step=0.01)
+fibTol = atr14 * fibTolAtr
+
+f_isNearLevel(level) =>
+    not na(level) and math.abs(close - level) <= fibTol
+
+nearWhite = useManualFib and (f_isNearLevel(fibW1) or f_isNearLevel(fibW2) or f_isNearLevel(fibW3))
+nearYellow = useManualFib and (f_isNearLevel(fibY1) or f_isNearLevel(fibY2) or f_isNearLevel(fibY3))
+nearGreen = useManualFib and (f_isNearLevel(fibG1) or f_isNearLevel(fibG2) or f_isNearLevel(fibG3))
+
+fibWeight = nearGreen ? 3 : nearYellow ? 2 : nearWhite ? 1 : 0
+fibSignificance = nearGreen ? "GREEN" : nearYellow ? "YELLOW" : nearWhite ? "WHITE" : "NONE"
+
+// -------------------------
+// Inputs: Pattern bias handoff
+// -------------------------
+// Pattern is the #1 driver in your workflow and is visual/manual.
+// Use this selector to encode current dominant pattern bias for the webhook.
+patternBias = input.string("neutral", "Dominant Pattern Bias", options=["bullish", "bearish", "neutral"])
+patternConfirmed = input.bool(false, "Pattern Confirmed (manual)")
+
+// -------------------------
+// Alert taxonomy (manual semantic tags)
+// -------------------------
+taxonomyVersion = input.string("tax_v1", "Taxonomy Version")
+setupId = input.string("setup_001", "Setup ID")
+patternType = input.string("flag", "Pattern Type", options=["flag", "pennant", "channel", "trendline", "hns", "inverse_hns", "cnh", "wedge", "arc", "other"])
+setupStage = input.string("watch", "Setup Stage", options=["watch", "trigger", "in_trade", "tp_zone", "invalidated"])
+timeHorizon = input.string("intraday", "Time Horizon", options=["scalp", "intraday", "swing"])
+
+// -------------------------
+// SRChannel proxy (gut-check)
+// -------------------------
+srLen = input.int(50, "SRChannel Length", minval=10)
+srUpper = ta.highest(high, srLen)
+srLower = ta.lowest(low, srLen)
+nearSrUpper = math.abs(close - srUpper) <= levelTol
+nearSrLower = math.abs(close - srLower) <= levelTol
+plot(srUpper, "SRChannel Upper", color=color.new(color.aqua, 60), linewidth=1)
+plot(srLower, "SRChannel Lower", color=color.new(color.aqua, 60), linewidth=1)
+
+// -------------------------
+// Extra diagnostics (for validation + richer relay)
+// -------------------------
+barRange = high - low
+barBody = math.abs(close - open)
+bodyPctOfRange = barRange > 0 ? (barBody / barRange) * 100 : 0.0
+upperWick = high - math.max(open, close)
+lowerWick = math.min(open, close) - low
+upperWickPct = barRange > 0 ? (upperWick / barRange) * 100 : 0.0
+lowerWickPct = barRange > 0 ? (lowerWick / barRange) * 100 : 0.0
+rangeAtrRatio = atr14 > 0 ? barRange / atr14 : na
+
+emaSpread = math.abs(emaFast - emaSlow)
+emaSpreadAtr = atr14 > 0 ? emaSpread / atr14 : na
+rsiSlope3 = rsi - rsi[3]
+macdHistSlope3 = macdHist - macdHist[3]
+
+distToEmaFastAtr = atr14 > 0 ? (close - emaFast) / atr14 : na
+distToEmaSlowAtr = atr14 > 0 ? (close - emaSlow) / atr14 : na
+distToHighLevelAtr = atr14 > 0 ? (close - priorRangeHigh) / atr14 : na
+distToLowLevelAtr = atr14 > 0 ? (close - priorRangeLow) / atr14 : na
+
+f_distAtr(level) =>
+    not na(level) and atr14 > 0 ? math.abs(close - level) / atr14 : na
+
+distFibW1Atr = f_distAtr(fibW1)
+distFibW2Atr = f_distAtr(fibW2)
+distFibW3Atr = f_distAtr(fibW3)
+distFibY1Atr = f_distAtr(fibY1)
+distFibY2Atr = f_distAtr(fibY2)
+distFibY3Atr = f_distAtr(fibY3)
+distFibG1Atr = f_distAtr(fibG1)
+distFibG2Atr = f_distAtr(fibG2)
+distFibG3Atr = f_distAtr(fibG3)
+
+// -------------------------
+// Confluence scoring aligned to your priority order
+// Pattern > Fib > Levels > MACD/TTM > RSI
+// -------------------------
+score = 0
+
+// Pattern first
+score += patternConfirmed ? 4 : 0
+score += patternBias == "bullish" ? 1 : patternBias == "bearish" ? -1 : 0
+
+// Fib second
+score += fibWeight
+
+// Levels third
+score += (atHighLevel or atLowLevel or breakAboveLevel or breakBelowLevel) ? 2 : 0
+
+// MACD + squeeze fourth
+score += macdBullExpand ? 1 : 0
+score -= macdBearExpand ? 1 : 0
+score += squeezeRelease ? 1 : 0
+
+// RSI fifth
+score += rsiBullRegime ? 1 : 0
+score -= rsiBearRegime ? 1 : 0
+score += rsiCrossUp50 ? 1 : 0
+score -= rsiCrossDown50 ? 1 : 0
+
+// EMA / SRChannel are context enhancers
+score += emaBullStack ? 1 : 0
+score -= emaBearStack ? 1 : 0
+score += emaCompressed ? 1 : 0
+score += (nearSrUpper or nearSrLower) ? 1 : 0
+
+confluenceClass = score >= 8 ? "HIGH" : score >= 4 ? "MEDIUM" : "LOW"
+bias = score > 1 ? "BULLISH" : score < -1 ? "BEARISH" : "NEUTRAL"
+
+// -------------------------
+// Visual status label
+// -------------------------
+var label statusLabel = na
+if barstate.islast
+    label.delete(statusLabel)
+    statusText = "Pattern: " + patternBias + " (" + str.tostring(patternConfirmed) + ")" +
+      "\nFib: " + fibSignificance +
+      "\nMACD: " + (macdBullExpand ? "bull expand" : macdBearExpand ? "bear expand" : "flat") +
+      "\nSqueezeRelease: " + str.tostring(squeezeRelease) +
+      "\nRSI: " + str.tostring(rsi, format.mintick) +
+      "\nScore: " + str.tostring(score) + " (" + confluenceClass + ")" +
+      "\nBias: " + bias
+    statusLabel := label.new(bar_index, high, statusText, style=label.style_label_down, color=color.new(color.black, 0), textcolor=color.white)
+
+// -------------------------
+// Webhook payload
+// -------------------------
+symbolText = syminfo.ticker
+tfText = timeframe.period
+barTime = str.tostring(time)
+
+payload = "{"
+payload += "\"symbol\":\"" + symbolText + "\""
+payload += ",\"timeframe\":\"" + tfText + "\""
+payload += ",\"bar_time\":\"" + barTime + "\""
+payload += ",\"taxonomy_version\":\"" + taxonomyVersion + "\""
+payload += ",\"setup_id\":\"" + setupId + "\""
+payload += ",\"pattern_type\":\"" + patternType + "\""
+payload += ",\"setup_stage\":\"" + setupStage + "\""
+payload += ",\"time_horizon\":\"" + timeHorizon + "\""
+payload += ",\"close\":" + str.tostring(close)
+payload += ",\"open\":" + str.tostring(open)
+payload += ",\"high\":" + str.tostring(high)
+payload += ",\"low\":" + str.tostring(low)
+payload += ",\"bar_range\":" + str.tostring(barRange)
+payload += ",\"bar_body\":" + str.tostring(barBody)
+payload += ",\"body_pct_of_range\":" + str.tostring(bodyPctOfRange)
+payload += ",\"upper_wick_pct\":" + str.tostring(upperWickPct)
+payload += ",\"lower_wick_pct\":" + str.tostring(lowerWickPct)
+payload += ",\"range_atr_ratio\":" + str.tostring(rangeAtrRatio)
+payload += ",\"atr14\":" + str.tostring(atr14)
+payload += ",\"pattern_bias\":\"" + patternBias + "\""
+payload += ",\"pattern_confirmed\":" + str.tostring(patternConfirmed)
+payload += ",\"fib_significance\":\"" + fibSignificance + "\""
+payload += ",\"near_fib_white\":" + str.tostring(nearWhite)
+payload += ",\"near_fib_yellow\":" + str.tostring(nearYellow)
+payload += ",\"near_fib_green\":" + str.tostring(nearGreen)
+payload += ",\"dist_fib_w1_atr\":" + str.tostring(distFibW1Atr)
+payload += ",\"dist_fib_w2_atr\":" + str.tostring(distFibW2Atr)
+payload += ",\"dist_fib_w3_atr\":" + str.tostring(distFibW3Atr)
+payload += ",\"dist_fib_y1_atr\":" + str.tostring(distFibY1Atr)
+payload += ",\"dist_fib_y2_atr\":" + str.tostring(distFibY2Atr)
+payload += ",\"dist_fib_y3_atr\":" + str.tostring(distFibY3Atr)
+payload += ",\"dist_fib_g1_atr\":" + str.tostring(distFibG1Atr)
+payload += ",\"dist_fib_g2_atr\":" + str.tostring(distFibG2Atr)
+payload += ",\"dist_fib_g3_atr\":" + str.tostring(distFibG3Atr)
+payload += ",\"at_key_level_high\":" + str.tostring(atHighLevel)
+payload += ",\"at_key_level_low\":" + str.tostring(atLowLevel)
+payload += ",\"break_above_level\":" + str.tostring(breakAboveLevel)
+payload += ",\"break_below_level\":" + str.tostring(breakBelowLevel)
+payload += ",\"dist_key_high_atr\":" + str.tostring(distToHighLevelAtr)
+payload += ",\"dist_key_low_atr\":" + str.tostring(distToLowLevelAtr)
+payload += ",\"macd_hist\":" + str.tostring(macdHist)
+payload += ",\"macd_bull_expand\":" + str.tostring(macdBullExpand)
+payload += ",\"macd_bear_expand\":" + str.tostring(macdBearExpand)
+payload += ",\"macd_hist_slope3\":" + str.tostring(macdHistSlope3)
+payload += ",\"macd_line\":" + str.tostring(macdLine)
+payload += ",\"macd_signal\":" + str.tostring(signalLine)
+payload += ",\"squeeze_on\":" + str.tostring(squeezeOn)
+payload += ",\"squeeze_release\":" + str.tostring(squeezeRelease)
+payload += ",\"rsi\":" + str.tostring(rsi)
+payload += ",\"rsi_bull_regime\":" + str.tostring(rsiBullRegime)
+payload += ",\"rsi_bear_regime\":" + str.tostring(rsiBearRegime)
+payload += ",\"rsi_slope3\":" + str.tostring(rsiSlope3)
+payload += ",\"ema_bull_stack\":" + str.tostring(emaBullStack)
+payload += ",\"ema_bear_stack\":" + str.tostring(emaBearStack)
+payload += ",\"ema_compressed\":" + str.tostring(emaCompressed)
+payload += ",\"ema_fast\":" + str.tostring(emaFast)
+payload += ",\"ema_mid1\":" + str.tostring(emaMid1)
+payload += ",\"ema_mid2\":" + str.tostring(emaMid2)
+payload += ",\"ema_slow\":" + str.tostring(emaSlow)
+payload += ",\"ema_spread_atr\":" + str.tostring(emaSpreadAtr)
+payload += ",\"dist_ema_fast_atr\":" + str.tostring(distToEmaFastAtr)
+payload += ",\"dist_ema_slow_atr\":" + str.tostring(distToEmaSlowAtr)
+payload += ",\"sr_near_upper\":" + str.tostring(nearSrUpper)
+payload += ",\"sr_near_lower\":" + str.tostring(nearSrLower)
+payload += ",\"score\":" + str.tostring(score)
+payload += ",\"confluence\":\"" + confluenceClass + "\""
+payload += ",\"bias\":\"" + bias + "\""
+payload += "}"
+
+// Alert trigger options
+emitOnClose = input.bool(true, "Emit Alert On Every Bar Close")
+emitOnlyOnSignal = input.bool(false, "Emit Only On Medium/High Confluence")
+signalFire = emitOnlyOnSignal ? (confluenceClass != "LOW") : true
+
+if barstate.isconfirmed and emitOnClose and signalFire
+    alert(payload, alert.freq_once_per_bar_close)
+
+alertcondition(barstate.isconfirmed and signalFire, "Confluence Payload", "Confluence payload is ready for webhook.")
