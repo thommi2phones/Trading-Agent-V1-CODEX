@@ -231,6 +231,147 @@ distFibG2Atr = f_distAtr(fibG2)
 distFibG3Atr = f_distAtr(fibG3)
 
 // -------------------------
+// Auto pattern heuristics (secondary to manual pattern context)
+// -------------------------
+autoPatternEnabled = input.bool(true, "Auto Pattern Heuristics")
+pivotLen = input.int(4, "Pattern Pivot Length", minval=2)
+impulseLen = input.int(12, "Pattern Impulse Length", minval=5)
+consLen = input.int(10, "Pattern Consolidation Length", minval=5)
+
+ph = ta.pivothigh(high, pivotLen, pivotLen)
+pl = ta.pivotlow(low, pivotLen, pivotLen)
+
+ph0 = ta.valuewhen(not na(ph), ph, 0)
+ph1 = ta.valuewhen(not na(ph), ph, 1)
+ph2 = ta.valuewhen(not na(ph), ph, 2)
+phBar0 = ta.valuewhen(not na(ph), bar_index - pivotLen, 0)
+phBar1 = ta.valuewhen(not na(ph), bar_index - pivotLen, 1)
+phBar2 = ta.valuewhen(not na(ph), bar_index - pivotLen, 2)
+
+pl0 = ta.valuewhen(not na(pl), pl, 0)
+pl1 = ta.valuewhen(not na(pl), pl, 1)
+plBar0 = ta.valuewhen(not na(pl), bar_index - pivotLen, 0)
+plBar1 = ta.valuewhen(not na(pl), bar_index - pivotLen, 1)
+
+consHigh = ta.highest(high, consLen)
+consLow = ta.lowest(low, consLen)
+consRange = consHigh - consLow
+consRangeAtr = atr14 > 0 ? consRange / atr14 : na
+consRangePrev = ta.highest(high[consLen], consLen) - ta.lowest(low[consLen], consLen)
+consContracting = consRangePrev > 0 ? consRange < consRangePrev : false
+slopeHigh = ta.linreg(high, consLen, 0) - ta.linreg(high, consLen, 1)
+slopeLow = ta.linreg(low, consLen, 0) - ta.linreg(low, consLen, 1)
+
+impulseDown = close[consLen + impulseLen] - close[consLen] > atr14 * 2.0
+impulseUp = close[consLen] - close[consLen + impulseLen] > atr14 * 2.0
+
+bf1 = impulseDown
+bf2 = consRangeAtr <= 2.2
+bf3 = slopeHigh > 0 and slopeLow > 0
+bf4 = math.abs(slopeHigh - slopeLow) <= atr14 * 0.05
+bearFlagConf = (bf1 ? 1.0 : 0.0) + (bf2 ? 1.0 : 0.0) + (bf3 ? 1.0 : 0.0) + (bf4 ? 1.0 : 0.0)
+bearFlagConf := bearFlagConf / 4.0
+bearFlag = autoPatternEnabled and bearFlagConf >= 0.75
+bearFlagBreak = bearFlag and close < consLow[1]
+
+buf1 = impulseUp
+buf2 = consRangeAtr <= 2.2
+buf3 = slopeHigh < 0 and slopeLow < 0
+buf4 = math.abs(slopeHigh - slopeLow) <= atr14 * 0.05
+bullFlagConf = (buf1 ? 1.0 : 0.0) + (buf2 ? 1.0 : 0.0) + (buf3 ? 1.0 : 0.0) + (buf4 ? 1.0 : 0.0)
+bullFlagConf := bullFlagConf / 4.0
+bullFlag = autoPatternEnabled and bullFlagConf >= 0.75
+bullFlagBreak = bullFlag and close > consHigh[1]
+
+bp1 = impulseDown
+bp2 = consRangeAtr <= 2.0
+bp3 = slopeHigh < 0 and slopeLow > 0
+bp4 = consContracting
+bearPennantConf = (bp1 ? 1.0 : 0.0) + (bp2 ? 1.0 : 0.0) + (bp3 ? 1.0 : 0.0) + (bp4 ? 1.0 : 0.0)
+bearPennantConf := bearPennantConf / 4.0
+bearPennant = autoPatternEnabled and bearPennantConf >= 0.75
+bearPennantBreak = bearPennant and close < consLow[1]
+
+bup1 = impulseUp
+bup2 = consRangeAtr <= 2.0
+bup3 = slopeHigh < 0 and slopeLow > 0
+bup4 = consContracting
+bullPennantConf = (bup1 ? 1.0 : 0.0) + (bup2 ? 1.0 : 0.0) + (bup3 ? 1.0 : 0.0) + (bup4 ? 1.0 : 0.0)
+bullPennantConf := bullPennantConf / 4.0
+bullPennant = autoPatternEnabled and bullPennantConf >= 0.75
+bullPennantBreak = bullPennant and close > consHigh[1]
+
+dtOrder = not na(phBar0) and not na(phBar1) and not na(plBar0) and plBar0 > phBar1 and plBar0 < phBar0
+dtPeaks = not na(ph0) and not na(ph1) and math.abs(ph0 - ph1) <= atr14 * 0.8
+dtDip = not na(pl0) and not na(ph0) and not na(ph1) and (math.min(ph0, ph1) - pl0) >= atr14 * 1.0
+doubleTopConf = (dtOrder ? 1.0 : 0.0) + (dtPeaks ? 1.0 : 0.0) + (dtDip ? 1.0 : 0.0)
+doubleTopConf := doubleTopConf / 3.0
+doubleTop = autoPatternEnabled and doubleTopConf >= 0.67
+doubleTopBreak = doubleTop and close < pl0
+
+hsOrder = not na(phBar2) and not na(plBar1) and not na(phBar1) and not na(plBar0) and not na(phBar0) and phBar2 < plBar1 and plBar1 < phBar1 and phBar1 < plBar0 and plBar0 < phBar0
+hsShoulders = not na(ph2) and not na(ph0) and math.abs(ph2 - ph0) <= atr14 * 1.0
+hsHead = not na(ph1) and not na(ph2) and not na(ph0) and ph1 > ph2 + atr14 * 0.7 and ph1 > ph0 + atr14 * 0.7
+hsNeck = not na(pl1) and not na(pl0) ? (pl1 + pl0) / 2.0 : na
+hsConf = (hsOrder ? 1.0 : 0.0) + (hsShoulders ? 1.0 : 0.0) + (hsHead ? 1.0 : 0.0)
+hsConf := hsConf / 3.0
+headShoulders = autoPatternEnabled and hsConf >= 0.67
+headShouldersBreak = headShoulders and not na(hsNeck) and close < hsNeck
+
+chOrder = not na(phBar2) and not na(plBar1) and not na(phBar0) and not na(plBar0) and phBar2 < plBar1 and plBar1 < phBar0 and phBar0 < plBar0
+chRim = not na(ph2) and not na(ph0) and math.abs(ph2 - ph0) <= atr14 * 1.2
+chDepth = not na(pl1) and not na(ph2) and not na(ph0) and (math.min(ph2, ph0) - pl1) >= atr14 * 1.5
+chHandle = not na(pl0) and not na(ph0) and not na(pl1) and (ph0 - pl0) <= (math.min(ph2, ph0) - pl1) * 0.5
+cupHandleConf = (chOrder ? 1.0 : 0.0) + (chRim ? 1.0 : 0.0) + (chDepth ? 1.0 : 0.0) + (chHandle ? 1.0 : 0.0)
+cupHandleConf := cupHandleConf / 4.0
+cupHandle = autoPatternEnabled and cupHandleConf >= 0.75
+cupHandleBreak = cupHandle and close > math.max(ph2, ph0)
+
+autoPattern = "none"
+autoPatternBias = "neutral"
+autoPatternConf = 0.0
+autoPatternTrigger = false
+
+if bearFlagConf > autoPatternConf
+    autoPattern := "bear_flag"
+    autoPatternBias := "bearish"
+    autoPatternConf := bearFlagConf
+    autoPatternTrigger := bearFlagBreak
+if bullFlagConf > autoPatternConf
+    autoPattern := "bull_flag"
+    autoPatternBias := "bullish"
+    autoPatternConf := bullFlagConf
+    autoPatternTrigger := bullFlagBreak
+if bearPennantConf > autoPatternConf
+    autoPattern := "bear_pennant"
+    autoPatternBias := "bearish"
+    autoPatternConf := bearPennantConf
+    autoPatternTrigger := bearPennantBreak
+if bullPennantConf > autoPatternConf
+    autoPattern := "bull_pennant"
+    autoPatternBias := "bullish"
+    autoPatternConf := bullPennantConf
+    autoPatternTrigger := bullPennantBreak
+if doubleTopConf > autoPatternConf
+    autoPattern := "double_top"
+    autoPatternBias := "bearish"
+    autoPatternConf := doubleTopConf
+    autoPatternTrigger := doubleTopBreak
+if hsConf > autoPatternConf
+    autoPattern := "head_shoulders"
+    autoPatternBias := "bearish"
+    autoPatternConf := hsConf
+    autoPatternTrigger := headShouldersBreak
+if cupHandleConf > autoPatternConf
+    autoPattern := "cup_handle"
+    autoPatternBias := "bullish"
+    autoPatternConf := cupHandleConf
+    autoPatternTrigger := cupHandleBreak
+
+autoPatternStrong = autoPatternEnabled and autoPatternConf >= 0.70
+autoPatternAligned = (patternBias == "bullish" and autoPatternBias == "bullish") or (patternBias == "bearish" and autoPatternBias == "bearish")
+
+// -------------------------
 // Confluence scoring aligned to your priority order
 // Pattern > Fib > Levels > MACD/TTM > RSI
 // -------------------------
@@ -265,6 +406,9 @@ score += (nearSrUpper or nearSrLower) ? 1 : 0
 
 // Trade-level alignment enhancer
 score += nearEntry ? 1 : 0
+score += autoPatternStrong ? 1 : 0
+score += autoPatternStrong and autoPatternAligned ? 1 : 0
+score += autoPatternTrigger ? 1 : 0
 
 confluenceClass = score >= 8 ? "HIGH" : score >= 4 ? "MEDIUM" : "LOW"
 bias = score > 1 ? "BULLISH" : score < -1 ? "BEARISH" : "NEUTRAL"
@@ -280,6 +424,7 @@ if barstate.islast
       "\nMACD: " + (macdBullExpand ? "bull expand" : macdBearExpand ? "bear expand" : "flat") +
       "\nSqueezeRelease: " + str.tostring(squeezeRelease) +
       "\nRSI: " + str.tostring(rsi, format.mintick) +
+      "\nAutoPattern: " + autoPattern + " (" + str.tostring(autoPatternConf, format.mintick) + ")" +
       "\nEntryNear: " + str.tostring(nearEntry) +
       "\nScore: " + str.tostring(score) + " (" + confluenceClass + ")" +
       "\nBias: " + bias
@@ -339,6 +484,17 @@ payload += ",\"rr_tp2\":" + str.tostring(rrTp2)
 payload += ",\"rr_tp3\":" + str.tostring(rrTp3)
 payload += ",\"pattern_bias\":\"" + patternBias + "\""
 payload += ",\"pattern_confirmed\":" + str.tostring(patternConfirmed)
+payload += ",\"auto_pattern\":\"" + autoPattern + "\""
+payload += ",\"auto_pattern_bias\":\"" + autoPatternBias + "\""
+payload += ",\"auto_pattern_conf\":" + str.tostring(autoPatternConf)
+payload += ",\"auto_pattern_strong\":" + str.tostring(autoPatternStrong)
+payload += ",\"auto_pattern_trigger\":" + str.tostring(autoPatternTrigger)
+payload += ",\"auto_pattern_aligned\":" + str.tostring(autoPatternAligned)
+payload += ",\"auto_bear_flag\":" + str.tostring(bearFlag)
+payload += ",\"auto_bear_pennant\":" + str.tostring(bearPennant)
+payload += ",\"auto_head_shoulders\":" + str.tostring(headShoulders)
+payload += ",\"auto_double_top\":" + str.tostring(doubleTop)
+payload += ",\"auto_cup_handle\":" + str.tostring(cupHandle)
 payload += ",\"fib_significance\":\"" + fibSignificance + "\""
 payload += ",\"near_fib_white\":" + str.tostring(nearWhite)
 payload += ",\"near_fib_yellow\":" + str.tostring(nearYellow)
@@ -396,3 +552,14 @@ if barstate.isconfirmed and emitOnClose and signalFire
     alert(payload, alert.freq_once_per_bar_close)
 
 alertcondition(barstate.isconfirmed and signalFire, "Confluence Payload", "Confluence payload is ready for webhook.")
+alertcondition(barstate.isconfirmed and hitEntry, "Entry Hit", "Price touched manual entry level.")
+alertcondition(barstate.isconfirmed and hitStop, "Stop Hit", "Price touched manual stop level.")
+alertcondition(barstate.isconfirmed and hitTp1, "TP1 Hit", "Price touched manual TP1 level.")
+alertcondition(barstate.isconfirmed and hitTp2, "TP2 Hit", "Price touched manual TP2 level.")
+alertcondition(barstate.isconfirmed and hitTp3, "TP3 Hit", "Price touched manual TP3 level.")
+alertcondition(barstate.isconfirmed and nearEntry and confluenceClass != "LOW", "Near Entry With Confluence", "Price is near entry with medium/high confluence.")
+alertcondition(barstate.isconfirmed and bearFlagBreak, "Bear Flag Breakdown", "Auto bear flag breakdown trigger.")
+alertcondition(barstate.isconfirmed and bearPennantBreak, "Bear Pennant Breakdown", "Auto bear pennant breakdown trigger.")
+alertcondition(barstate.isconfirmed and doubleTopBreak, "Double Top Breakdown", "Auto double top breakdown trigger.")
+alertcondition(barstate.isconfirmed and headShouldersBreak, "Head and Shoulders Breakdown", "Auto head and shoulders breakdown trigger.")
+alertcondition(barstate.isconfirmed and cupHandleBreak, "Cup and Handle Breakout", "Auto cup and handle breakout trigger.")
