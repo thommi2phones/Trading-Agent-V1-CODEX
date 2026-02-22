@@ -128,14 +128,20 @@ const server = http.createServer(async (req, res) => {
   }
 
   try {
+    const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const sourceIp = req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown";
+    console.log(`[webhook] request_received id=${requestId} method=${req.method} path=${parsedUrl.pathname} ip=${sourceIp}`);
+
     const token = parsedUrl.searchParams.get("token") || "";
     if (TV_WEBHOOK_TOKEN && token !== TV_WEBHOOK_TOKEN) {
+      console.log(`[webhook] request_rejected id=${requestId} reason=invalid_token`);
       return json(res, 401, { ok: false, error: "Invalid token" });
     }
 
     const raw = await readBody(req);
     const parsed = parseJson(raw);
     if (!parsed.ok) {
+      console.log(`[webhook] request_rejected id=${requestId} reason=invalid_json`);
       return json(res, 400, { ok: false, error: "Invalid JSON", detail: parsed.error });
     }
 
@@ -154,6 +160,10 @@ const server = http.createServer(async (req, res) => {
     writeEvent(event);
     const forwardResult = await forwardToAgent(event);
 
+    console.log(
+      `[webhook] request_processed id=${requestId} accepted=${missing.length === 0} symbol=${payload.symbol || "na"} setup_id=${payload.setup_id || "na"} stage=${payload.setup_stage || "na"} confluence=${payload.confluence || "na"}`
+    );
+
     return json(res, 200, {
       ok: true,
       accepted: missing.length === 0,
@@ -162,6 +172,7 @@ const server = http.createServer(async (req, res) => {
       forward: forwardResult
     });
   } catch (err) {
+    console.error(`[webhook] request_failed error=${err.message}`);
     return json(res, 500, { ok: false, error: "Internal error", detail: err.message });
   }
 });
@@ -171,4 +182,3 @@ server.listen(PORT, () => {
   console.log(`[tv-webhook-receiver] health: http://localhost:${PORT}/health`);
   console.log("[tv-webhook-receiver] endpoint: POST /tv-webhook?token=YOUR_TOKEN");
 });
-
