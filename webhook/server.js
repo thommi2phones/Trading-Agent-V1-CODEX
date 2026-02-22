@@ -137,7 +137,8 @@ const server = http.createServer(async (req, res) => {
     const raw = await readBody(req);
     const parsed = parseJson(raw);
     if (!parsed.ok) {
-      console.log(`[webhook] request_rejected id=${requestId} reason=invalid_json`);
+      const preview = raw.replace(/\s+/g, " ").slice(0, 240);
+      console.log(`[webhook] request_rejected id=${requestId} reason=invalid_json raw_preview="${preview}"`);
       return json(res, 400, { ok: false, error: "Invalid JSON", detail: parsed.error });
     }
 
