@@ -10,7 +10,7 @@
 ## 1) Run locally
 ```bash
 cd "/Users/thom/Documents/Personal/Codex Projects/Trading Agent Codex"
-TV_WEBHOOK_TOKEN="replace_me" PORT=8787 node webhook/server.js
+PORT=8787 node webhook/server.js
 ```
 
 Health check:
@@ -20,7 +20,7 @@ curl http://localhost:8787/health
 
 ## 2) Test with sample payload
 ```bash
-curl -X POST "http://localhost:8787/tv-webhook?token=replace_me" \
+curl -X POST "http://localhost:8787/tv-webhook" \
   -H "Content-Type: application/json" \
   --data-binary @"/Users/thom/Documents/Personal/Codex Projects/Trading Agent Codex/docs/webhook_payload_example.json"
 ```
@@ -31,8 +31,8 @@ curl -X POST "http://localhost:8787/tv-webhook?token=replace_me" \
 3. Condition: select the indicator alert (`Confluence Payload`) or `Any alert() function call`.
 4. Check `Webhook URL`.
 5. Set URL:
-   - Local test: `http://<public-tunnel-host>/tv-webhook?token=replace_me`
-   - Server: `https://your-domain.com/tv-webhook?token=replace_me`
+   - Local test: `http://<public-tunnel-host>/tv-webhook`
+   - Server: `https://your-domain.com/tv-webhook`
 6. Alert message can be blank if your script uses `alert(payload, ...)`.
 
 ## 4) Expose local server to TradingView
@@ -59,8 +59,6 @@ The receiver will POST this event envelope:
 ```
 
 ## 6) Troubleshooting
-- `401 Invalid token`: token in query string doesn’t match `TV_WEBHOOK_TOKEN`.
 - `400 Invalid JSON`: alert body is not valid JSON.
 - `accepted: false`: required fields are missing; inspect `missing_fields`.
 - No TradingView calls received: webhook URL not public or alert not firing.
-

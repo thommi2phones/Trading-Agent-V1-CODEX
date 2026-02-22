@@ -7,7 +7,6 @@ const path = require("path");
 const { URL } = require("url");
 
 const PORT = Number(process.env.PORT || 8787);
-const TV_WEBHOOK_TOKEN = process.env.TV_WEBHOOK_TOKEN || "";
 const AGENT_FORWARD_URL = process.env.AGENT_FORWARD_URL || "";
 const AGENT_FORWARD_BEARER = process.env.AGENT_FORWARD_BEARER || "";
 
@@ -134,12 +133,6 @@ const server = http.createServer(async (req, res) => {
 
   try {
     console.log(`[webhook] request_received id=${requestId} method=${req.method} path=${parsedUrl.pathname} ip=${sourceIp}`);
-
-    const token = parsedUrl.searchParams.get("token") || "";
-    if (TV_WEBHOOK_TOKEN && token !== TV_WEBHOOK_TOKEN) {
-      console.log(`[webhook] request_rejected id=${requestId} reason=invalid_token`);
-      return json(res, 401, { ok: false, error: "Invalid token" });
-    }
 
     const raw = await readBody(req);
     const parsed = parseJson(raw);
