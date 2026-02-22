@@ -114,6 +114,9 @@ function json(res, statusCode, body) {
 
 const server = http.createServer(async (req, res) => {
   const parsedUrl = new URL(req.url, `http://${req.headers.host}`);
+  const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const sourceIp = req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown";
+  console.log(`[http] id=${requestId} method=${req.method} path=${parsedUrl.pathname} ip=${sourceIp}`);
 
   if (req.method === "GET" && parsedUrl.pathname === "/health") {
     return json(res, 200, {
@@ -123,13 +126,13 @@ const server = http.createServer(async (req, res) => {
     });
   }
 
-  if (req.method !== "POST" || parsedUrl.pathname !== "/tv-webhook") {
+  const webhookPaths = new Set(["/tv-webhook", "/tv-webhook/", "/webhook", "/webhook/"]);
+  if (req.method !== "POST" || !webhookPaths.has(parsedUrl.pathname)) {
+    console.log(`[webhook] request_ignored id=${requestId} reason=path_or_method_mismatch`);
     return json(res, 404, { ok: false, error: "Not found" });
   }
 
   try {
-    const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const sourceIp = req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown";
     console.log(`[webhook] request_received id=${requestId} method=${req.method} path=${parsedUrl.pathname} ip=${sourceIp}`);
 
     const token = parsedUrl.searchParams.get("token") || "";
@@ -180,5 +183,5 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   console.log(`[tv-webhook-receiver] listening on :${PORT}`);
   console.log(`[tv-webhook-receiver] health: http://localhost:${PORT}/health`);
-  console.log("[tv-webhook-receiver] endpoint: POST /tv-webhook?token=YOUR_TOKEN");
+  console.log("[tv-webhook-receiver] endpoints: POST /tv-webhook, /tv-webhook/, /webhook, /webhook/");
 });
