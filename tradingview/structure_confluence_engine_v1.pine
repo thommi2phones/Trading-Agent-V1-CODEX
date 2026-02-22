@@ -91,23 +91,23 @@ plot(priorRangeLow, "Proxy Key Low", color=color.new(color.blue, 30), linewidth=
 // -------------------------
 useManualFib = input.bool(true, "Use Manual Fib Levels")
 
-fibW1 = input.float(na, "Fib White 1")
-fibW2 = input.float(na, "Fib White 2")
-fibW3 = input.float(na, "Fib White 3")
+fibW1 = input.float(0.0, "Fib White 1")
+fibW2 = input.float(0.0, "Fib White 2")
+fibW3 = input.float(0.0, "Fib White 3")
 
-fibY1 = input.float(na, "Fib Yellow 1")
-fibY2 = input.float(na, "Fib Yellow 2")
-fibY3 = input.float(na, "Fib Yellow 3")
+fibY1 = input.float(0.0, "Fib Yellow 1")
+fibY2 = input.float(0.0, "Fib Yellow 2")
+fibY3 = input.float(0.0, "Fib Yellow 3")
 
-fibG1 = input.float(na, "Fib Green 1")
-fibG2 = input.float(na, "Fib Green 2")
-fibG3 = input.float(na, "Fib Green 3")
+fibG1 = input.float(0.0, "Fib Green 1")
+fibG2 = input.float(0.0, "Fib Green 2")
+fibG3 = input.float(0.0, "Fib Green 3")
 
 fibTolAtr = input.float(0.12, "Fib Proximity ATR Tolerance", minval=0.01, step=0.01)
 fibTol = atr14 * fibTolAtr
 
 f_isNearLevel(level) =>
-    not na(level) and math.abs(close - level) <= fibTol
+    level > 0 and math.abs(close - level) <= fibTol
 
 nearWhite = useManualFib and (f_isNearLevel(fibW1) or f_isNearLevel(fibW2) or f_isNearLevel(fibW3))
 nearYellow = useManualFib and (f_isNearLevel(fibY1) or f_isNearLevel(fibY2) or f_isNearLevel(fibY3))
@@ -132,6 +132,57 @@ setupId = input.string("setup_001", "Setup ID")
 patternType = input.string("flag", "Pattern Type", options=["flag", "pennant", "channel", "trendline", "hns", "inverse_hns", "cnh", "wedge", "arc", "other"])
 setupStage = input.string("watch", "Setup Stage", options=["watch", "trigger", "in_trade", "tp_zone", "invalidated"])
 timeHorizon = input.string("intraday", "Time Horizon", options=["scalp", "intraday", "swing"])
+
+// -------------------------
+// Manual trade levels (entry framework)
+// -------------------------
+useTradeLevels = input.bool(true, "Use Manual Trade Levels")
+tradeDirection = input.string("long", "Trade Direction", options=["long", "short"])
+entryPrice = input.float(0.0, "Entry Price")
+stopPrice = input.float(0.0, "Stop Price")
+tp1Price = input.float(0.0, "TP1 Price")
+tp2Price = input.float(0.0, "TP2 Price")
+tp3Price = input.float(0.0, "TP3 Price")
+levelTolAtr = input.float(0.10, "Trade Level ATR Tolerance", minval=0.01, step=0.01)
+levelTolTrade = atr14 * levelTolAtr
+
+f_validLevel(level) =>
+    level > 0
+
+hasEntry = useTradeLevels and f_validLevel(entryPrice)
+hasStop = useTradeLevels and f_validLevel(stopPrice)
+hasTp1 = useTradeLevels and f_validLevel(tp1Price)
+hasTp2 = useTradeLevels and f_validLevel(tp2Price)
+hasTp3 = useTradeLevels and f_validLevel(tp3Price)
+
+nearEntry = hasEntry and math.abs(close - entryPrice) <= levelTolTrade
+nearStop = hasStop and math.abs(close - stopPrice) <= levelTolTrade
+nearTp1 = hasTp1 and math.abs(close - tp1Price) <= levelTolTrade
+nearTp2 = hasTp2 and math.abs(close - tp2Price) <= levelTolTrade
+nearTp3 = hasTp3 and math.abs(close - tp3Price) <= levelTolTrade
+
+hitEntry = hasEntry and high >= entryPrice and low <= entryPrice
+hitStop = hasStop and high >= stopPrice and low <= stopPrice
+hitTp1 = hasTp1 and high >= tp1Price and low <= tp1Price
+hitTp2 = hasTp2 and high >= tp2Price and low <= tp2Price
+hitTp3 = hasTp3 and high >= tp3Price and low <= tp3Price
+
+distEntryAtr = hasEntry and atr14 > 0 ? math.abs(close - entryPrice) / atr14 : na
+distStopAtr = hasStop and atr14 > 0 ? math.abs(close - stopPrice) / atr14 : na
+distTp1Atr = hasTp1 and atr14 > 0 ? math.abs(close - tp1Price) / atr14 : na
+distTp2Atr = hasTp2 and atr14 > 0 ? math.abs(close - tp2Price) / atr14 : na
+distTp3Atr = hasTp3 and atr14 > 0 ? math.abs(close - tp3Price) / atr14 : na
+
+risk = hasEntry and hasStop ? math.abs(entryPrice - stopPrice) : na
+rrTp1 = hasTp1 and not na(risk) and risk > 0 ? math.abs(tp1Price - entryPrice) / risk : na
+rrTp2 = hasTp2 and not na(risk) and risk > 0 ? math.abs(tp2Price - entryPrice) / risk : na
+rrTp3 = hasTp3 and not na(risk) and risk > 0 ? math.abs(tp3Price - entryPrice) / risk : na
+
+plot(hasEntry ? entryPrice : na, "Manual Entry", color=color.new(color.white, 0), linewidth=2, style=plot.style_linebr)
+plot(hasStop ? stopPrice : na, "Manual Stop", color=color.new(color.red, 0), linewidth=2, style=plot.style_linebr)
+plot(hasTp1 ? tp1Price : na, "Manual TP1", color=color.new(color.orange, 0), linewidth=2, style=plot.style_linebr)
+plot(hasTp2 ? tp2Price : na, "Manual TP2", color=color.new(color.orange, 15), linewidth=2, style=plot.style_linebr)
+plot(hasTp3 ? tp3Price : na, "Manual TP3", color=color.new(color.orange, 30), linewidth=2, style=plot.style_linebr)
 
 // -------------------------
 // SRChannel proxy (gut-check)
@@ -212,6 +263,9 @@ score -= emaBearStack ? 1 : 0
 score += emaCompressed ? 1 : 0
 score += (nearSrUpper or nearSrLower) ? 1 : 0
 
+// Trade-level alignment enhancer
+score += nearEntry ? 1 : 0
+
 confluenceClass = score >= 8 ? "HIGH" : score >= 4 ? "MEDIUM" : "LOW"
 bias = score > 1 ? "BULLISH" : score < -1 ? "BEARISH" : "NEUTRAL"
 
@@ -226,6 +280,7 @@ if barstate.islast
       "\nMACD: " + (macdBullExpand ? "bull expand" : macdBearExpand ? "bear expand" : "flat") +
       "\nSqueezeRelease: " + str.tostring(squeezeRelease) +
       "\nRSI: " + str.tostring(rsi, format.mintick) +
+      "\nEntryNear: " + str.tostring(nearEntry) +
       "\nScore: " + str.tostring(score) + " (" + confluenceClass + ")" +
       "\nBias: " + bias
     statusLabel := label.new(bar_index, high, statusText, style=label.style_label_down, color=color.new(color.black, 0), textcolor=color.white)
@@ -257,6 +312,31 @@ payload += ",\"upper_wick_pct\":" + str.tostring(upperWickPct)
 payload += ",\"lower_wick_pct\":" + str.tostring(lowerWickPct)
 payload += ",\"range_atr_ratio\":" + str.tostring(rangeAtrRatio)
 payload += ",\"atr14\":" + str.tostring(atr14)
+payload += ",\"use_trade_levels\":" + str.tostring(useTradeLevels)
+payload += ",\"trade_direction\":\"" + tradeDirection + "\""
+payload += ",\"entry_price\":" + str.tostring(entryPrice)
+payload += ",\"stop_price\":" + str.tostring(stopPrice)
+payload += ",\"tp1_price\":" + str.tostring(tp1Price)
+payload += ",\"tp2_price\":" + str.tostring(tp2Price)
+payload += ",\"tp3_price\":" + str.tostring(tp3Price)
+payload += ",\"near_entry\":" + str.tostring(nearEntry)
+payload += ",\"near_stop\":" + str.tostring(nearStop)
+payload += ",\"near_tp1\":" + str.tostring(nearTp1)
+payload += ",\"near_tp2\":" + str.tostring(nearTp2)
+payload += ",\"near_tp3\":" + str.tostring(nearTp3)
+payload += ",\"hit_entry\":" + str.tostring(hitEntry)
+payload += ",\"hit_stop\":" + str.tostring(hitStop)
+payload += ",\"hit_tp1\":" + str.tostring(hitTp1)
+payload += ",\"hit_tp2\":" + str.tostring(hitTp2)
+payload += ",\"hit_tp3\":" + str.tostring(hitTp3)
+payload += ",\"dist_entry_atr\":" + str.tostring(distEntryAtr)
+payload += ",\"dist_stop_atr\":" + str.tostring(distStopAtr)
+payload += ",\"dist_tp1_atr\":" + str.tostring(distTp1Atr)
+payload += ",\"dist_tp2_atr\":" + str.tostring(distTp2Atr)
+payload += ",\"dist_tp3_atr\":" + str.tostring(distTp3Atr)
+payload += ",\"rr_tp1\":" + str.tostring(rrTp1)
+payload += ",\"rr_tp2\":" + str.tostring(rrTp2)
+payload += ",\"rr_tp3\":" + str.tostring(rrTp3)
 payload += ",\"pattern_bias\":\"" + patternBias + "\""
 payload += ",\"pattern_confirmed\":" + str.tostring(patternConfirmed)
 payload += ",\"fib_significance\":\"" + fibSignificance + "\""
