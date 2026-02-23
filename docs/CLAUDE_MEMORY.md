@@ -89,6 +89,48 @@ Files:
 - Render logs show request processed with setup/symbol/confluence.
 - Pattern detection now identifies bear/bull pennants in tested examples.
 
+## Latest Accomplishments (Most Recent Session)
+1. Stabilized TradingView -> Render relay
+- Confirmed live webhook processing with TradingView source IPs
+- Added robust request lifecycle logging
+- Added invalid JSON raw preview logging for fast troubleshooting
+- Removed token dependency from runtime flow to match current TV usage
+- Added flexible webhook routes (`/webhook`, `/tv-webhook`, with/without trailing slash)
+
+2. Expanded Pine strategy engine to one composite system
+- Added manual entry/stop/TP level model with proximity/hit tracking
+- Added risk/reward fields (`rr_tp1`, `rr_tp2`, `rr_tp3`)
+- Added dedicated alertconditions for entry/stop/tp and confluence states
+- Added auto pattern detection module for:
+  - flags/pennants (bull + bear)
+  - head and shoulders
+  - double tops
+  - cup and handle
+- Tuned pattern logic to reduce false double-top calls in downtrend compression
+- Added explicit compression-over-time feature for pennant recognition
+
+3. Improved event backend for agent + UI consumption
+- Added normalized `agent_packet` generation per accepted webhook
+- Added persistence APIs:
+  - `GET /events/latest`
+  - `GET /events?limit=...&setup_id=...`
+- Added latest snapshot storage (`webhook/data/latest.json`)
+- Added optional local file inbox integration via `AGENT_INBOX_DIR`
+- Added CORS headers for frontend clients (Replit-compatible integration path)
+
+4. Documentation and operational clarity
+- Updated setup/runbook docs for no-token webhook flow
+- Documented integration scope and next-phase architecture
+- Added this memory layer so Claude can ingest project state quickly
+
+## New Operational Baseline
+- Indicator on chart: `TA Codex - Structure Confluence Engine v1`
+- Alert mode: `Any alert() function call` (or explicit named conditions)
+- Webhook URL:
+  - `https://trading-agent-v1-codex.onrender.com/webhook`
+- Expected Render success log:
+  - `[webhook] request_processed ... accepted=true ...`
+
 ## Required User Alert Configuration
 Use alert condition from this indicator:
 - `TA Codex - Structure Confluence Engine v1`
