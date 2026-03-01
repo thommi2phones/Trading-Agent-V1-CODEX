@@ -150,7 +150,7 @@ class Backtester:
         n = len(df)
 
         # Determine which rules to test
-        all_rules = [r["name"] for r in self._scanner._rules]
+        all_rules = [r["name"] for r in self._scanner.rules]
         rules_to_test = [rule_name] if rule_name else all_rules
 
         for rname in rules_to_test:
@@ -184,7 +184,7 @@ class Backtester:
         df = add_all_indicators(df.copy())
         df = add_all_patterns(df.copy())
 
-        all_rules = [r["name"] for r in self._scanner._rules]
+        all_rules = [r["name"] for r in self._scanner.rules]
         rules_to_test = [rule_name] if rule_name else all_rules
         reports = []
 

@@ -128,7 +128,7 @@ def cmd_analyze_trades(args: argparse.Namespace) -> None:
     print(f"\nSaved {len(save_list)} trade records → {output_path}")
 
     # Pattern analysis
-    learner  = PatternLearner(records)
+    learner  = PatternLearner(all_records)
     insights = learner.analyze()
     learner.print_report(insights)
 
@@ -347,10 +347,10 @@ def cmd_validate(args: argparse.Namespace) -> None:
     check("ALPACA_API_KEY",       "Alpaca market data + trading",        required=False)
     check("ALPACA_SECRET_KEY",    "Alpaca secret",                       required=False)
     check("DISCORD_WEBHOOK_URL",  "Discord alerts",                      required=False)
-    check("EMAIL_HOST",           "SMTP host for email alerts",          required=False)
-    check("EMAIL_USER",           "SMTP username",                       required=False)
-    check("EMAIL_PASS",           "SMTP password",                       required=False)
-    check("EMAIL_TO",             "Alert recipient address",             required=False)
+    check("SMTP_HOST",             "SMTP host for email alerts",          required=False)
+    check("EMAIL_SENDER",          "SMTP sender address",                required=False)
+    check("EMAIL_PASSWORD",        "SMTP password",                      required=False)
+    check("EMAIL_RECIPIENT",       "Alert recipient address",            required=False)
 
     print("\n── Config Files ──────────────────────────────────────────────────")
     for cfg in ["config/settings.yaml", "config/rules.yaml"]:

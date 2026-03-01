@@ -19,6 +19,7 @@ from typing import Optional
 import yaml
 from apscheduler.schedulers.blocking import BlockingScheduler
 
+from agent.health import start_health_server, update_status, record_scan, record_error
 from alerts import discord as discord_alert
 from alerts import email_alert
 from analysis.mtf_scanner import MTFScanner, MTFSignal
@@ -100,8 +101,9 @@ class TradingAgent:
         wl = self.cfg.get("watchlists", {})
         self._stocks  = wl.get("stocks",  [])
         self._crypto  = wl.get("crypto",  [])
+        self._metals  = wl.get("metals",  [])
         self._futures = wl.get("futures", [])
-        self._watchlist = self._stocks + self._crypto + self._futures
+        self._watchlist = self._stocks + self._crypto + self._metals + self._futures
 
         # Collect every unique timeframe required across all profiles
         all_tfs: set[str] = set()
@@ -142,6 +144,22 @@ class TradingAgent:
             # MTF confluence scan across all configured profiles
             mtf_signals = self._mtf_scanner.scan_all_profiles(ticker, data_by_tf)
             for sig in mtf_signals:
+                # Apply learned confidence boosts from trade history
+                boost = self._signal_gen._get_boost(sig.rule_name)
+                if boost != 0.0:
+                    sig.mtf_confidence = round(
+                        min(1.0, max(0.0, sig.mtf_confidence + boost)), 3
+                    )
+
+                # Filter by min confidence
+                if sig.mtf_confidence < self._signal_gen._min_confidence:
+                    logger.debug(
+                        "MTF signal %s on %s filtered (conf %.2f < %.2f)",
+                        sig.rule_name, ticker,
+                        sig.mtf_confidence, self._signal_gen._min_confidence,
+                    )
+                    continue
+
                 all_signals.append(sig)
                 print(f"  ⚡  {sig}")
                 self._dispatch_alerts(sig)
@@ -155,12 +173,22 @@ class TradingAgent:
             print("  No signals this cycle.")
 
         logger.info("═══ Cycle complete  %d signals ═══", len(all_signals))
+        record_scan(len(all_signals))
         return all_signals
 
     def run(self) -> None:
         """Start the continuous scheduled agent loop."""
+        # Start health check server for container orchestration
+        start_health_server(port=int(os.getenv("HEALTH_PORT", "8080")))
+
         interval = self.cfg["scanner"]["scan_interval_minutes"]
         profiles = list(self.cfg.get("scan_profiles", {}).keys())
+
+        update_status(
+            status="running",
+            watchlist_size=len(self._watchlist),
+            execution_mode=self.cfg["execution"]["mode"],
+        )
 
         print(
             f"\n{'═'*60}\n"

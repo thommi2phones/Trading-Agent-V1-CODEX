@@ -12,18 +12,27 @@ data:
 # ── Watchlists ────────────────────────────────────────────────────────────────
 watchlists:
   stocks:
-    - AAPL
     - TSLA
+    - AMD
+    - AAPL
     - NVDA
-    - MSFT
+    - DNN
+    - URNM
     - SPY
     - QQQ
   crypto:
-    - BTC-USD
-    - ETH-USD
-  futures:
-    - ES=F    # S&P 500 E-mini
-    - NQ=F    # Nasdaq E-mini
+    - BTC/USD
+    - ETH/USD
+    - XRP/USD
+    - SOL/USD
+    - DOGE/USD
+    - HBAR/USD
+    - SUI/USD
+  metals:
+    - XAUUSD    # Gold
+    - XAGUSD    # Silver
+    - XPDUSD    # Palladium
+    - XPTUSD    # Platinum
 
 # ── Scanner ───────────────────────────────────────────────────────────────────
 scanner:
