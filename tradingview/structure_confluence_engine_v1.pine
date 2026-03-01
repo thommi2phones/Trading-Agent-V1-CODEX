@@ -107,7 +107,7 @@ fibTolAtr = input.float(0.12, "Fib Proximity ATR Tolerance", minval=0.01, step=0
 fibTol = atr14 * fibTolAtr
 
 f_isNearLevel(level) =>
-    level > 0 and math.abs(close - level) <= fibTol
+    level > 0 and (math.abs(close - level) <= fibTol or math.abs(low - level) <= fibTol or math.abs(high - level) <= fibTol)
 
 nearWhite = useManualFib and (f_isNearLevel(fibW1) or f_isNearLevel(fibW2) or f_isNearLevel(fibW3))
 nearYellow = useManualFib and (f_isNearLevel(fibY1) or f_isNearLevel(fibY2) or f_isNearLevel(fibY3))
@@ -128,7 +128,8 @@ patternConfirmed = input.bool(false, "Pattern Confirmed (manual)")
 // Alert taxonomy (manual semantic tags)
 // -------------------------
 taxonomyVersion = input.string("tax_v1", "Taxonomy Version")
-setupId = input.string("setup_001", "Setup ID")
+setupIdSuffix = input.string("001", "Setup ID Suffix")
+setupId = syminfo.ticker + "_" + setupIdSuffix
 patternType = input.string("flag", "Pattern Type", options=["flag", "pennant", "channel", "trendline", "hns", "inverse_hns", "cnh", "wedge", "arc", "other"])
 setupStage = input.string("watch", "Setup Stage", options=["watch", "trigger", "in_trade", "tp_zone", "invalidated"])
 timeHorizon = input.string("intraday", "Time Horizon", options=["scalp", "intraday", "swing"])
@@ -161,11 +162,19 @@ nearTp1 = hasTp1 and math.abs(close - tp1Price) <= levelTolTrade
 nearTp2 = hasTp2 and math.abs(close - tp2Price) <= levelTolTrade
 nearTp3 = hasTp3 and math.abs(close - tp3Price) <= levelTolTrade
 
+// Wick-based hit (bar spans the level — may include wicks on volatile candles)
 hitEntry = hasEntry and high >= entryPrice and low <= entryPrice
 hitStop = hasStop and high >= stopPrice and low <= stopPrice
 hitTp1 = hasTp1 and high >= tp1Price and low <= tp1Price
 hitTp2 = hasTp2 and high >= tp2Price and low <= tp2Price
 hitTp3 = hasTp3 and high >= tp3Price and low <= tp3Price
+
+// Close-confirmed hit (stronger signal — price closed through the level)
+hitEntryClose = hasEntry and math.abs(close - entryPrice) <= levelTolTrade
+hitStopClose = hasStop and math.abs(close - stopPrice) <= levelTolTrade
+hitTp1Close = hasTp1 and math.abs(close - tp1Price) <= levelTolTrade
+hitTp2Close = hasTp2 and math.abs(close - tp2Price) <= levelTolTrade
+hitTp3Close = hasTp3 and math.abs(close - tp3Price) <= levelTolTrade
 
 distEntryAtr = hasEntry and atr14 > 0 ? math.abs(close - entryPrice) / atr14 : na
 distStopAtr = hasStop and atr14 > 0 ? math.abs(close - stopPrice) / atr14 : na
@@ -397,6 +406,7 @@ autoPatternOverruledByManual = autoPatternStrong and patternConfirmed and patter
 // -------------------------
 // Confluence scoring aligned to your priority order
 // Pattern > Fib > Levels > MACD/TTM > RSI
+// Directional: score separately for bull/bear, pick active side based on tradeDirection
 // -------------------------
 score = 0
 
@@ -433,8 +443,50 @@ score += autoPatternStrong ? 1 : 0
 score += autoPatternStrong and autoPatternAligned ? 1 : 0
 score += autoPatternTrigger ? 1 : 0
 
-confluenceClass = score >= 8 ? "HIGH" : score >= 4 ? "MEDIUM" : "LOW"
+// -------------------------
+// Directional confluence: score independently for each side
+// Agent uses activeScore (aligned to tradeDirection) for final classification
+// -------------------------
+bullScore = 0
+bullScore += patternConfirmed and patternBias == "bullish" ? 5 : 0
+bullScore += patternBias == "bullish" ? 1 : 0
+bullScore += fibWeight
+bullScore += (breakAboveLevel or atLowLevel) ? 2 : 0
+bullScore += macdBullExpand ? 1 : 0
+bullScore += squeezeRelease ? 1 : 0
+bullScore += rsiBullRegime ? 1 : 0
+bullScore += rsiCrossUp50 ? 1 : 0
+bullScore += emaBullStack ? 2 : 0
+bullScore += emaCompressed ? 1 : 0
+bullScore += nearSrLower ? 1 : 0
+bullScore += nearEntry and tradeDirection == "long" ? 1 : 0
+bullScore += autoPatternStrong and autoPatternBias == "bullish" ? 2 : 0
+bullScore += autoPatternTrigger and autoPatternBias == "bullish" ? 1 : 0
+
+bearScore = 0
+bearScore += patternConfirmed and patternBias == "bearish" ? 5 : 0
+bearScore += patternBias == "bearish" ? 1 : 0
+bearScore += fibWeight
+bearScore += (breakBelowLevel or atHighLevel) ? 2 : 0
+bearScore += macdBearExpand ? 1 : 0
+bearScore += squeezeRelease ? 1 : 0
+bearScore += rsiBearRegime ? 1 : 0
+bearScore += rsiCrossDown50 ? 1 : 0
+bearScore += emaBearStack ? 2 : 0
+bearScore += emaCompressed ? 1 : 0
+bearScore += nearSrUpper ? 1 : 0
+bearScore += nearEntry and tradeDirection == "short" ? 1 : 0
+bearScore += autoPatternStrong and autoPatternBias == "bearish" ? 2 : 0
+bearScore += autoPatternTrigger and autoPatternBias == "bearish" ? 1 : 0
+
+activeScore = tradeDirection == "long" ? bullScore : bearScore
+oppositeScore = tradeDirection == "long" ? bearScore : bullScore
+
+confluenceClass = activeScore >= 8 ? "HIGH" : activeScore >= 4 ? "MEDIUM" : "LOW"
 bias = score > 1 ? "BULLISH" : score < -1 ? "BEARISH" : "NEUTRAL"
+
+// Best R:R across all TP levels (for quick agent sanity check)
+bestRR = math.max(na(rrTp1) ? 0.0 : rrTp1, na(rrTp2) ? 0.0 : rrTp2, na(rrTp3) ? 0.0 : rrTp3)
 
 // -------------------------
 // Visual status label
@@ -449,7 +501,9 @@ if barstate.islast
       "\nRSI: " + str.tostring(rsi, format.mintick) +
       "\nAutoPattern: " + autoPattern + " (" + str.tostring(autoPatternConf, format.mintick) + ")" +
       "\nEntryNear: " + str.tostring(nearEntry) +
-      "\nScore: " + str.tostring(score) + " (" + confluenceClass + ")" +
+      "\nBullScore: " + str.tostring(bullScore) + " | BearScore: " + str.tostring(bearScore) +
+      "\nActiveScore (" + tradeDirection + "): " + str.tostring(activeScore) + " (" + confluenceClass + ")" +
+      "\nRawScore: " + str.tostring(score) + " | BestRR: " + str.tostring(bestRR, "#.##") +
       "\nBias: " + bias
     statusLabel := label.new(bar_index, high, statusText, style=label.style_label_down, color=color.new(color.black, 0), textcolor=color.white)
 
@@ -497,6 +551,11 @@ payload += ",\"hit_stop\":" + str.tostring(hitStop)
 payload += ",\"hit_tp1\":" + str.tostring(hitTp1)
 payload += ",\"hit_tp2\":" + str.tostring(hitTp2)
 payload += ",\"hit_tp3\":" + str.tostring(hitTp3)
+payload += ",\"hit_entry_close\":" + str.tostring(hitEntryClose)
+payload += ",\"hit_stop_close\":" + str.tostring(hitStopClose)
+payload += ",\"hit_tp1_close\":" + str.tostring(hitTp1Close)
+payload += ",\"hit_tp2_close\":" + str.tostring(hitTp2Close)
+payload += ",\"hit_tp3_close\":" + str.tostring(hitTp3Close)
 payload += ",\"dist_entry_atr\":" + str.tostring(distEntryAtr)
 payload += ",\"dist_stop_atr\":" + str.tostring(distStopAtr)
 payload += ",\"dist_tp1_atr\":" + str.tostring(distTp1Atr)
@@ -505,6 +564,11 @@ payload += ",\"dist_tp3_atr\":" + str.tostring(distTp3Atr)
 payload += ",\"rr_tp1\":" + str.tostring(rrTp1)
 payload += ",\"rr_tp2\":" + str.tostring(rrTp2)
 payload += ",\"rr_tp3\":" + str.tostring(rrTp3)
+payload += ",\"best_rr\":" + str.tostring(bestRR)
+payload += ",\"bull_score\":" + str.tostring(bullScore)
+payload += ",\"bear_score\":" + str.tostring(bearScore)
+payload += ",\"active_score\":" + str.tostring(activeScore)
+payload += ",\"opposite_score\":" + str.tostring(oppositeScore)
 payload += ",\"pattern_bias\":\"" + patternBias + "\""
 payload += ",\"pattern_confirmed\":" + str.tostring(patternConfirmed)
 payload += ",\"auto_pattern\":\"" + autoPattern + "\""
@@ -517,7 +581,9 @@ payload += ",\"auto_pattern_overruled_by_manual\":" + str.tostring(autoPatternOv
 payload += ",\"compression_ratio\":" + str.tostring(compressionRatio)
 payload += ",\"is_compression\":" + str.tostring(isCompression)
 payload += ",\"auto_bear_flag\":" + str.tostring(bearFlag)
+payload += ",\"auto_bull_flag\":" + str.tostring(bullFlag)
 payload += ",\"auto_bear_pennant\":" + str.tostring(bearPennant)
+payload += ",\"auto_bull_pennant\":" + str.tostring(bullPennant)
 payload += ",\"auto_head_shoulders\":" + str.tostring(headShoulders)
 payload += ",\"auto_double_top\":" + str.tostring(doubleTop)
 payload += ",\"auto_cup_handle\":" + str.tostring(cupHandle)
@@ -578,14 +644,18 @@ if barstate.isconfirmed and emitOnClose and signalFire
     alert(payload, alert.freq_once_per_bar_close)
 
 alertcondition(barstate.isconfirmed and signalFire, "Confluence Payload", "Confluence payload is ready for webhook.")
-alertcondition(barstate.isconfirmed and hitEntry, "Entry Hit", "Price touched manual entry level.")
-alertcondition(barstate.isconfirmed and hitStop, "Stop Hit", "Price touched manual stop level.")
+alertcondition(barstate.isconfirmed and hitEntry, "Entry Hit", "Price touched manual entry level (wick).")
+alertcondition(barstate.isconfirmed and hitEntryClose, "Entry Hit (Close Confirmed)", "Price closed at manual entry level.")
+alertcondition(barstate.isconfirmed and hitStop, "Stop Hit", "Price touched manual stop level (wick).")
+alertcondition(barstate.isconfirmed and hitStopClose, "Stop Hit (Close Confirmed)", "Price closed at manual stop level.")
 alertcondition(barstate.isconfirmed and hitTp1, "TP1 Hit", "Price touched manual TP1 level.")
 alertcondition(barstate.isconfirmed and hitTp2, "TP2 Hit", "Price touched manual TP2 level.")
 alertcondition(barstate.isconfirmed and hitTp3, "TP3 Hit", "Price touched manual TP3 level.")
 alertcondition(barstate.isconfirmed and nearEntry and confluenceClass != "LOW", "Near Entry With Confluence", "Price is near entry with medium/high confluence.")
 alertcondition(barstate.isconfirmed and bearFlagBreak, "Bear Flag Breakdown", "Auto bear flag breakdown trigger.")
+alertcondition(barstate.isconfirmed and bullFlagBreak, "Bull Flag Breakout", "Auto bull flag breakout trigger.")
 alertcondition(barstate.isconfirmed and bearPennantBreak, "Bear Pennant Breakdown", "Auto bear pennant breakdown trigger.")
+alertcondition(barstate.isconfirmed and bullPennantBreak, "Bull Pennant Breakout", "Auto bull pennant breakout trigger.")
 alertcondition(barstate.isconfirmed and doubleTopBreak, "Double Top Breakdown", "Auto double top breakdown trigger.")
 alertcondition(barstate.isconfirmed and headShouldersBreak, "Head and Shoulders Breakdown", "Auto head and shoulders breakdown trigger.")
 alertcondition(barstate.isconfirmed and cupHandleBreak, "Cup and Handle Breakout", "Auto cup and handle breakout trigger.")
