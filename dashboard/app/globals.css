@@ -1,0 +1,42 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-tv-bg: #131722;
+  --color-tv-surface: #1E222D;
+  --color-tv-border: #2A2E39;
+  --color-tv-text: #D1D4DC;
+  --color-tv-text-dim: #787B86;
+  --color-tv-blue: #2962FF;
+  --color-tv-orange: #FF6D00;
+  --color-tv-green: #26A69A;
+  --color-tv-red: #EF5350;
+  --color-tv-yellow: #FFEB3B;
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--color-tv-bg);
+  color: var(--color-tv-text);
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-tv-bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-tv-border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-tv-text-dim);
+}
+
+.font-mono-numbers {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-variant-numeric: tabular-nums;
+}

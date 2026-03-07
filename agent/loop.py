@@ -25,9 +25,11 @@ from alerts import email_alert
 from analysis.mtf_scanner import MTFScanner, MTFSignal
 from analysis.scanner import Scanner
 from data.providers.alpaca_provider import AlpacaProvider
+from data.providers.render_poller import RenderPoller
 from data.providers.yfinance_provider import YFinanceProvider
 from execution.paper_trading import PaperTrader
 from signals.generator import SignalGenerator
+from signals.inbox_processor import InboxProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +99,26 @@ class TradingAgent:
                 take_profit_pct=self.cfg["execution"]["take_profit_pct"],
             )
 
+        # ── Render webhook poller + inbox processor ───────────────────────────
+        render_cfg = self.cfg.get("render_webhook", {})
+        self._render_enabled = render_cfg.get("enabled", False)
+        self._render_poller: Optional[RenderPoller] = None
+        self._inbox_processor: Optional[InboxProcessor] = None
+
+        if self._render_enabled:
+            self._render_poller = RenderPoller(
+                render_url=render_cfg.get("url", "https://trading-agent-v1-codex.onrender.com"),
+                inbox_dir=render_cfg.get("inbox_dir", "signals/inbox"),
+                state_file=render_cfg.get("state_file", "data/render_poll_state.json"),
+            )
+            self._inbox_processor = InboxProcessor(
+                inbox_dir=render_cfg.get("inbox_dir", "signals/inbox"),
+                signal_routing=render_cfg.get("signal_routing", {}),
+            )
+            logger.info("Render webhook polling enabled: %s", render_cfg.get("url"))
+        else:
+            logger.info("Render webhook polling disabled")
+
         # ── Watchlist ─────────────────────────────────────────────────────────
         wl = self.cfg.get("watchlists", {})
         self._stocks  = wl.get("stocks",  [])
@@ -165,6 +187,11 @@ class TradingAgent:
                 self._dispatch_alerts(sig)
                 self._execute(sig)
 
+        # ── Process TradingView webhook inbox ────────────────────────────────
+        tv_signals = self._process_webhook_inbox()
+        if tv_signals:
+            all_signals.extend(tv_signals)
+
         # Update fallback paper positions
         if self._paper_trader and ticker_prices:
             self._paper_trader.update_positions(ticker_prices)
@@ -172,7 +199,8 @@ class TradingAgent:
         if not all_signals:
             print("  No signals this cycle.")
 
-        logger.info("═══ Cycle complete  %d signals ═══", len(all_signals))
+        logger.info("═══ Cycle complete  %d signals (%d internal, %d webhook) ═══",
+                     len(all_signals), len(all_signals) - len(tv_signals), len(tv_signals))
         record_scan(len(all_signals))
         return all_signals
 
@@ -225,7 +253,58 @@ class TradingAgent:
             if self._paper_trader:
                 self._paper_trader.print_report()
 
+    def poll_render(self) -> list[dict]:
+        """One-shot poll of Render webhook service. Returns new agent_packets."""
+        if not self._render_poller:
+            logger.warning("Render poller not configured")
+            return []
+        return self._render_poller.poll()
+
     # ── Private ───────────────────────────────────────────────────────────────
+
+    def _process_webhook_inbox(self) -> list[MTFSignal]:
+        """
+        Poll Render for new events, then process any pending inbox files.
+        Returns MTFSignal list from webhook events.
+        """
+        if not self._render_enabled:
+            return []
+
+        tv_signals: list[MTFSignal] = []
+
+        # Step 1: Poll Render for new events → saves to inbox
+        if self._render_poller:
+            try:
+                new_packets = self._render_poller.poll()
+                if new_packets:
+                    logger.info("Polled %d new events from Render", len(new_packets))
+            except Exception as exc:
+                logger.error("Render poll failed: %s", exc)
+
+        # Step 2: Process inbox files → convert to signals
+        if self._inbox_processor:
+            try:
+                inbox_signals = self._inbox_processor.process()
+                for isig in inbox_signals:
+                    mtf_sig = isig.to_mtf_signal()
+                    print(f"  📡 TV: {mtf_sig}")
+
+                    # Route based on confluence level
+                    if isig.action == "execute":
+                        self._dispatch_alerts(mtf_sig)
+                        self._execute(mtf_sig)
+                        logger.info("TV signal EXECUTED: %s %s", isig.symbol, isig.bias)
+                    else:
+                        # Alert only — no execution
+                        self._dispatch_alerts(mtf_sig)
+                        logger.info("TV signal ALERTED: %s %s (action=%s)",
+                                    isig.symbol, isig.bias, isig.action)
+
+                    tv_signals.append(mtf_sig)
+            except Exception as exc:
+                logger.error("Inbox processing failed: %s", exc)
+
+        return tv_signals
 
     def _fetch_all_timeframes(self, ticker: str) -> dict:
         """Fetch OHLCV data for every required timeframe for a single ticker."""

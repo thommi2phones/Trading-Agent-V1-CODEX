@@ -394,6 +394,71 @@ def cmd_validate(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def cmd_poll_render(args: argparse.Namespace) -> None:
+    """One-shot poll of the Render webhook service for TradingView events."""
+    from data.providers.render_poller import RenderPoller
+    from signals.inbox_processor import InboxProcessor
+    import yaml
+
+    with open("config/settings.yaml") as f:
+        cfg = yaml.safe_load(f)
+
+    render_cfg = cfg.get("render_webhook", {})
+    if not render_cfg.get("enabled", False):
+        print("❌ render_webhook is not enabled in config/settings.yaml")
+        sys.exit(1)
+
+    url = render_cfg.get("url", "https://trading-agent-v1-codex.onrender.com")
+
+    poller = RenderPoller(
+        render_url=url,
+        inbox_dir=render_cfg.get("inbox_dir", "signals/inbox"),
+        state_file=render_cfg.get("state_file", "data/render_poll_state.json"),
+    )
+
+    # Health check
+    print(f"\n── Render Webhook Poller ─────────────────────────────────────────")
+    print(f"  URL: {url}")
+
+    if not poller.health_check():
+        print("  ❌ Render service is not responding")
+        sys.exit(1)
+    print("  ✅ Render service healthy")
+
+    # Poll for events
+    new_packets = poller.poll()
+    print(f"  New events: {len(new_packets)}")
+
+    for p in new_packets:
+        print(
+            f"    📡 {p.get('symbol', '?')} | "
+            f"{p.get('bias', '?')} | "
+            f"confluence={p.get('confluence', '?')} | "
+            f"pattern={p.get('pattern', {}).get('manual_type', '?')} | "
+            f"score={p.get('score', 0)}"
+        )
+
+    # Process inbox if requested
+    if args.process:
+        routing = render_cfg.get("signal_routing", {})
+        processor = InboxProcessor(
+            inbox_dir=render_cfg.get("inbox_dir", "signals/inbox"),
+            signal_routing=routing,
+        )
+        signals = processor.process()
+        print(f"\n  Processed {len(signals)} inbox events:")
+        for sig in signals:
+            mtf = sig.to_mtf_signal()
+            print(f"    → {mtf}")
+            print(f"      action={sig.action} (confluence={sig.confluence})")
+
+    # Status
+    status = poller.status()
+    print(f"\n  Total events seen: {status['events_seen']}")
+    print(f"  Last poll: {status['last_poll']}")
+    print()
+
+
 def cmd_report(args: argparse.Namespace) -> None:
     from execution.paper_trading import PaperTrader
     PaperTrader.load().print_report()
@@ -528,6 +593,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print full per-rule reports in addition to the summary table",
     )
 
+    # poll-render
+    pr = sub.add_parser(
+        "poll-render",
+        help="Poll the Render webhook service for TradingView events",
+    )
+    pr.add_argument(
+        "--process",
+        action="store_true",
+        help="Also process inbox events into signals (convert + route)",
+    )
+
     # validate
     sub.add_parser(
         "validate",
@@ -554,6 +630,7 @@ def main() -> None:
         "analyze-trades":  cmd_analyze_trades,
         "analyze-chats":   cmd_analyze_chats,
         "backtest":        cmd_backtest,
+        "poll-render":     cmd_poll_render,
         "validate":        cmd_validate,
         "report":          cmd_report,
     }

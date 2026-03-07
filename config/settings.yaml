@@ -77,6 +77,18 @@ alerts:
   email:
     enabled: false
 
+# ── Render Webhook (TradingView → Render → Agent) ────────────────────────────
+render_webhook:
+  enabled: true
+  url: "https://trading-agent-v1-codex.onrender.com"
+  inbox_dir: "./signals/inbox"
+  state_file: "./data/render_poll_state.json"
+  poll_limit: 50
+  signal_routing:
+    HIGH: "execute"     # auto-execute on paper
+    MEDIUM: "alert"     # Discord/log alert only
+    LOW: "alert"        # Discord/log alert only
+
 # ── Trade History Analysis ────────────────────────────────────────────────────
 trade_history:
   images_dir: "./trade_images"
