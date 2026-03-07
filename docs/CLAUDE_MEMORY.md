@@ -109,6 +109,14 @@ Files:
 - Dashboard tech: Next.js 16 + React 19 + Tailwind v4, TradingView dark theme
 - Dashboard location: `/Users/thom/Documents/Personal/Code Projects/trading_agent/dashboard/`
 
+0. Session update (March 7, 2026) — Codex
+- Added lifecycle engine implementation in `webhook/lifecycle.js`.
+- Added lifecycle API:
+  - `GET /lifecycle/latest?limit=200`
+  - `GET /lifecycle/latest?setup_id=<setup_id>&limit=200`
+- Added canonical lifecycle spec at `docs/lifecycle_state_machine_v1.md`.
+- Lifecycle derivation now enforces deterministic precedence (stop/tp hits override weak stage labels) and flags invalid transitions as anomalies.
+
 0. Session update (March 6, 2026) — Codex
 - Added `docs/trading_decision_engine_v1.md` as the canonical deterministic policy for `agent_packet -> LONG|SHORT|WAIT`.
 - Defined:

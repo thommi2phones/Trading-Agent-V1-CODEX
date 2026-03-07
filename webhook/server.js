@@ -5,6 +5,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const { URL } = require("url");
+const { computeLifecycleLatest } = require("./lifecycle");
 
 const PORT = Number(process.env.PORT || 8787);
 const AGENT_FORWARD_URL = process.env.AGENT_FORWARD_URL || "";
@@ -293,6 +294,15 @@ const server = http.createServer(async (req, res) => {
     });
   }
 
+  if (req.method === "GET" && parsedUrl.pathname === "/lifecycle/latest") {
+    const requestedLimit = maybeNumber(parsedUrl.searchParams.get("limit"), 200);
+    const limit = Math.max(1, Math.min(requestedLimit || 200, MAX_EVENTS_READ));
+    const setupId = parsedUrl.searchParams.get("setup_id") || "";
+    const events = readRecentEvents(limit, "").reverse();
+    const lifecycle = computeLifecycleLatest(events, setupId);
+    return json(res, 200, { ok: true, ...lifecycle });
+  }
+
   const webhookPaths = new Set(["/tv-webhook", "/tv-webhook/", "/webhook", "/webhook/"]);
   if (req.method !== "POST" || !webhookPaths.has(parsedUrl.pathname)) {
     console.log(`[webhook] request_ignored id=${requestId} reason=path_or_method_mismatch`);
@@ -352,6 +362,7 @@ server.listen(PORT, () => {
   console.log(`[tv-webhook-receiver] listening on :${PORT}`);
   console.log(`[tv-webhook-receiver] health: http://localhost:${PORT}/health`);
   console.log(`[tv-webhook-receiver] events: GET /events/latest, GET /events?limit=50`);
+  console.log("[tv-webhook-receiver] lifecycle: GET /lifecycle/latest?limit=200&setup_id=...");
   console.log("[tv-webhook-receiver] endpoints: POST /tv-webhook, /tv-webhook/, /webhook, /webhook/");
   if (AGENT_INBOX_DIR) {
     console.log(`[tv-webhook-receiver] local agent inbox: ${AGENT_INBOX_DIR}`);

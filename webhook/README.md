@@ -26,6 +26,8 @@ Event APIs:
 curl "http://localhost:8787/events/latest"
 curl "http://localhost:8787/events?limit=20"
 curl "http://localhost:8787/events?limit=50&setup_id=setup_001"
+curl "http://localhost:8787/lifecycle/latest?limit=200"
+curl "http://localhost:8787/lifecycle/latest?setup_id=setup_001&limit=200"
 ```
 
 ## 2) Test with sample payload
