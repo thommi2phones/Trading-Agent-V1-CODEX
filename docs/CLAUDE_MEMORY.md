@@ -125,6 +125,16 @@ Files:
 - Endpoint returns latest `agent_packet` plus deterministic decision output (`action`, `confidence`, `risk_tier`, `direction_score`, `reason_codes`).
 - Updated docs so decision rules spec now maps directly to executable webhook behavior.
 
+0. Session update (March 7, 2026) — Codex
+- Built automated trade-memory pipeline for vector retrieval:
+  - Canonical memory file: `data/trade_memory/master_trade_memory.jsonl`
+  - Schema: `data/trade_memory/trade_memory.schema.json`
+  - Append script: `scripts/append_trade_memory.js`
+  - Vector sync script: `scripts/sync_vector_store.js`
+  - GitHub Action (15-min schedule): `.github/workflows/sync-trade-memory-vector-store.yml`
+- Sync script supports hash-based no-op and stale vector-file cleanup after successful index.
+- Added ops runbook: `docs/trade_memory_vector_store_ops.md`.
+
 0. Session update (March 6, 2026) — Codex
 - Added `docs/trading_decision_engine_v1.md` as the canonical deterministic policy for `agent_packet -> LONG|SHORT|WAIT`.
 - Defined:

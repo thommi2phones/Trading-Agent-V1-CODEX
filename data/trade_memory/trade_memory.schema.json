@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TradeMemoryRecord",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_id",
+    "created_at",
+    "symbol",
+    "timeframe",
+    "pattern",
+    "regime",
+    "image_ref",
+    "agent_bias",
+    "trade_grade",
+    "recommendations",
+    "entry",
+    "stop",
+    "actual_outcome",
+    "lessons",
+    "setup_id"
+  ],
+  "properties": {
+    "record_id": { "type": "string", "minLength": 3 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "setup_id": { "type": "string", "minLength": 1 },
+    "symbol": { "type": "string", "minLength": 1 },
+    "timeframe": { "type": "string", "minLength": 1 },
+    "pattern": { "type": "string", "minLength": 1 },
+    "regime": { "type": "string", "minLength": 1 },
+    "image_ref": { "type": "string", "minLength": 1 },
+    "agent_bias": { "type": "string", "enum": ["BULLISH", "BEARISH", "NEUTRAL"] },
+    "trade_grade": { "type": "string", "enum": ["A", "B", "C", "D", "F"] },
+    "recommendations": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "entry": { "type": "number" },
+    "stop": { "type": "number" },
+    "tp1": { "type": ["number", "null"] },
+    "tp2": { "type": ["number", "null"] },
+    "tp3": { "type": ["number", "null"] },
+    "actual_outcome": { "type": "string", "enum": ["pending", "win", "loss", "invalidated", "breakeven", "no_trade"] },
+    "rr_realized": { "type": ["number", "null"] },
+    "post_trade_notes": { "type": ["string", "null"] },
+    "lessons": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

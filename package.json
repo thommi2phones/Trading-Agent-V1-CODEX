@@ -4,7 +4,8 @@
   "private": true,
   "description": "TradingView webhook receiver for Trading-Agent-CODEX",
   "scripts": {
-    "start": "node webhook/server.js"
+    "start": "node webhook/server.js",
+    "memory:append": "node scripts/append_trade_memory.js",
+    "memory:sync": "node scripts/sync_vector_store.js"
   }
 }
-
