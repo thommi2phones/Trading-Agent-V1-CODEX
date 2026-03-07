@@ -90,7 +90,26 @@ Files:
 - Pattern detection now identifies bear/bull pennants in tested examples.
 
 ## Latest Accomplishments (Most Recent Session)
-0. Session update (March 6, 2026)
+
+0. Session update (March 7, 2026) — Claude Code
+- **Full dashboard E2E testing completed** (all features verified working):
+  - Dashboard: Account ($100k paper), System Status (Alpaca + Render OK)
+  - Signal Pipeline: TradingView Pine → Webhook POST → Render → Dashboard Events (tested live with AAPL signal)
+  - Events Page: Filtering by symbol/confluence/bias, expandable event detail with full payload
+  - Trading Workspace: Pre-trade checklist gates orders (4 required items), order form submits to Alpaca paper, confirmed BUY 1 AAPL accepted
+  - Positions Page: Correctly shows empty when market closed, queued orders visible
+- **Fixed nested button HTML hydration errors** in Chart Analyzer and Checklist collapsible headers (changed outer `<button>` to `<div role="button">`)
+- **Built Multi-Timeframe Analysis feature** (`/api/mtf` + `MTFAnalysis` component):
+  - Fetches bars from Alpaca for 1H, 4H, 12H (aggregated from 4H), 1D, 1W, 1M
+  - Computes per-timeframe: EMA 8/21 crossover, RSI regime, MACD histogram, price vs EMA trend
+  - Weighted composite score (higher TFs carry more weight: 1D/1W=3x, 12H=2x, etc.)
+  - Bull/Bear/Neutral per TF with expandable detail panel
+  - Quick symbol buttons for common tickers
+  - Added to /analyze page below Chart Analyzer
+- Dashboard tech: Next.js 16 + React 19 + Tailwind v4, TradingView dark theme
+- Dashboard location: `/Users/thom/Documents/Personal/Code Projects/trading_agent/dashboard/`
+
+0. Session update (March 6, 2026) — Codex
 - Added `docs/trading_decision_engine_v1.md` as the canonical deterministic policy for `agent_packet -> LONG|SHORT|WAIT`.
 - Defined:
   - hard safety gates (missing/conflicting data blocks action),
