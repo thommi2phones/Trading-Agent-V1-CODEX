@@ -131,3 +131,11 @@ Include concise reason codes for auditability:
 1. Keep this engine pure/deterministic (no side effects).
 2. Emit the same output for the same input.
 3. Log `direction_score` and `reason_codes` for post-trade analysis.
+
+## Runtime Integration
+Implemented module:
+- `/Users/thom/Documents/Personal/Codex Projects/Trading Agent Codex/webhook/decision.js`
+
+API endpoint:
+- `GET /decision/latest?limit=200`
+- `GET /decision/latest?setup_id=<setup_id>&limit=200`

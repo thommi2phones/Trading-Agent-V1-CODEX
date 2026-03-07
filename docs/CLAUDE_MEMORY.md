@@ -117,6 +117,14 @@ Files:
 - Added canonical lifecycle spec at `docs/lifecycle_state_machine_v1.md`.
 - Lifecycle derivation now enforces deterministic precedence (stop/tp hits override weak stage labels) and flags invalid transitions as anomalies.
 
+0. Session update (March 7, 2026) — Codex
+- Implemented Decision Engine v1 runtime module: `webhook/decision.js`.
+- Added decision API:
+  - `GET /decision/latest?limit=200`
+  - `GET /decision/latest?setup_id=<setup_id>&limit=200`
+- Endpoint returns latest `agent_packet` plus deterministic decision output (`action`, `confidence`, `risk_tier`, `direction_score`, `reason_codes`).
+- Updated docs so decision rules spec now maps directly to executable webhook behavior.
+
 0. Session update (March 6, 2026) — Codex
 - Added `docs/trading_decision_engine_v1.md` as the canonical deterministic policy for `agent_packet -> LONG|SHORT|WAIT`.
 - Defined:
