@@ -90,6 +90,14 @@ Files:
 - Pattern detection now identifies bear/bull pennants in tested examples.
 
 ## Latest Accomplishments (Most Recent Session)
+0. Session update (March 6, 2026)
+- Added repository hygiene guardrails:
+  - Created root `.gitignore` with runtime exclusions for `webhook/data/*` while keeping `webhook/data/.gitkeep`.
+- Added webhook event file retention control:
+  - New env var `MAX_EVENTS_FILE_BYTES` (default `5_000_000`).
+  - When `webhook/data/events.ndjson` reaches limit, server rotates it to `webhook/data/events.prev.ndjson` before appending new events.
+- Updated webhook docs to document retention and gitignored runtime artifacts.
+
 1. Stabilized TradingView -> Render relay
 - Confirmed live webhook processing with TradingView source IPs
 - Added robust request lifecycle logging

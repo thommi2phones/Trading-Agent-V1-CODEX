@@ -12,6 +12,7 @@ const AGENT_FORWARD_BEARER = process.env.AGENT_FORWARD_BEARER || "";
 const AGENT_INBOX_DIR = process.env.AGENT_INBOX_DIR || "";
 const CORS_ALLOW_ORIGIN = process.env.CORS_ALLOW_ORIGIN || "*";
 const MAX_EVENTS_READ = Number(process.env.MAX_EVENTS_READ || 200);
+const MAX_EVENTS_FILE_BYTES = Number(process.env.MAX_EVENTS_FILE_BYTES || 5_000_000);
 
 const REQUIRED_FIELDS = [
   "symbol",
@@ -34,6 +35,7 @@ const REQUIRED_FIELDS = [
 const workspaceRoot = process.cwd();
 const eventsDir = path.join(workspaceRoot, "webhook", "data");
 const eventsPath = path.join(eventsDir, "events.ndjson");
+const eventsBackupPath = path.join(eventsDir, "events.prev.ndjson");
 const latestPath = path.join(eventsDir, "latest.json");
 
 function ensureDataDir() {
@@ -191,8 +193,20 @@ async function forwardToAgent(event, agentPacket) {
 
 function writeEvent(event) {
   ensureDataDir();
+  rotateEventsIfNeeded();
   fs.appendFileSync(eventsPath, JSON.stringify(event) + "\n", "utf8");
   fs.writeFileSync(latestPath, JSON.stringify(event, null, 2), "utf8");
+}
+
+function rotateEventsIfNeeded() {
+  if (!fs.existsSync(eventsPath)) return;
+  const size = fs.statSync(eventsPath).size;
+  if (size < MAX_EVENTS_FILE_BYTES) return;
+
+  if (fs.existsSync(eventsBackupPath)) {
+    fs.unlinkSync(eventsBackupPath);
+  }
+  fs.renameSync(eventsPath, eventsBackupPath);
 }
 
 function writeAgentInbox(agentPacket) {

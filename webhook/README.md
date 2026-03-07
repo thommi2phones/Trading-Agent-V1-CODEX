@@ -57,6 +57,11 @@ AGENT_FORWARD_URL="https://your-agent-gateway.example.com/inbound"
 AGENT_FORWARD_BEARER="your_api_token"
 ```
 
+Optional event file rotation limit (default 5 MB):
+```bash
+MAX_EVENTS_FILE_BYTES=5000000
+```
+
 Optional local file handoff to Claude trading-agent files:
 ```bash
 AGENT_INBOX_DIR="/absolute/path/to/claude-trading-agent/inbox"
@@ -74,3 +79,7 @@ Forwarded body now includes both raw event + normalized agent packet:
 - `400 Invalid JSON`: alert body is not valid JSON.
 - `accepted: false`: required fields are missing; inspect `missing_fields`.
 - No TradingView calls received: webhook URL not public or alert not firing.
+
+## 7) Repo hygiene
+- Runtime files under `webhook/data/` are gitignored.
+- `webhook/data/.gitkeep` keeps the folder structure in the repository.
