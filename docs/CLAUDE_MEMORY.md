@@ -91,6 +91,16 @@ Files:
 
 ## Latest Accomplishments (Most Recent Session)
 0. Session update (March 6, 2026)
+- Added `docs/trading_decision_engine_v1.md` as the canonical deterministic policy for `agent_packet -> LONG|SHORT|WAIT`.
+- Defined:
+  - hard safety gates (missing/conflicting data blocks action),
+  - weighted direction scoring,
+  - stage guardrail,
+  - confidence/risk-tier mapping,
+  - reason code contract for auditability.
+- This is the active baseline for Decision Engine v1 implementation.
+
+0. Session update (March 6, 2026)
 - Added repository hygiene guardrails:
   - Created root `.gitignore` with runtime exclusions for `webhook/data/*` while keeping `webhook/data/.gitkeep`.
 - Added webhook event file retention control:
