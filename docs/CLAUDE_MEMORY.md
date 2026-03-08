@@ -91,6 +91,18 @@ Files:
 
 ## Latest Accomplishments (Most Recent Session)
 
+0. Session update (March 8, 2026) — Codex
+- Completed GitHub auth scope upgrade (`workflow`) and successfully pushed scheduled sync workflow:
+  - `.github/workflows/sync-trade-memory-vector-store.yml`
+- Connected and tested vector store automation end-to-end:
+  - Vector store ID: `vs_69ab92da99dc8191bbff35c5e8b1bdb1`
+  - Manual sync upload + indexing completed successfully.
+  - GitHub Action run succeeded (`Sync Trade Memory Vector Store` workflow_dispatch).
+- Verified current trade memory file validity:
+  - `data/trade_memory/master_trade_memory.jsonl` passes required-field check against schema.
+- Security note for operator:
+  - OpenAI API key was exposed during ops chat; rotate to a new key when possible and update repo secrets.
+
 0. Session update (March 7, 2026) — Claude Code
 - **Full dashboard E2E testing completed** (all features verified working):
   - Dashboard: Account ($100k paper), System Status (Alpaca + Render OK)
