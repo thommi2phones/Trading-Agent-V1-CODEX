@@ -71,6 +71,96 @@ function parseJson(raw) {
   }
 }
 
+/**
+ * Parse plain-text TradingView alert messages into a payload object.
+ *
+ * Common TV formats:
+ *   "BTCUSD, 5 Crossing Horizontal Ray"
+ *   "BTCUSD Crossing Up Horizontal Ray, value: 98000"
+ *   "XRPUSD, 15, close = 2.35, Crossing Down EMA 50"
+ *   "Alert: TSLA breakout on 1D"
+ */
+/**
+ * Attempt to recover data from truncated JSON.
+ * TradingView sometimes sends payloads that get cut off mid-field.
+ * We extract all complete key-value pairs we can find.
+ */
+function salvageTruncatedJson(raw) {
+  const text = raw.trim();
+  if (!text.startsWith("{")) return null;
+
+  const result = {};
+  // Match complete "key": value pairs (string, number, boolean, null)
+  const pairRegex = /"([^"]+)"\s*:\s*(?:"([^"]*)"|([\d.eE+-]+)|(true|false|null))/g;
+  let match;
+  let count = 0;
+
+  while ((match = pairRegex.exec(text)) !== null) {
+    const key = match[1];
+    if (match[2] !== undefined) {
+      result[key] = match[2]; // string value
+    } else if (match[3] !== undefined) {
+      result[key] = Number(match[3]); // number value
+    } else if (match[4] !== undefined) {
+      // boolean or null
+      result[key] = match[4] === "null" ? null : match[4] === "true";
+    }
+    count++;
+  }
+
+  // Only return if we found meaningful data (at least symbol)
+  if (count >= 2 && result.symbol) return result;
+  return null;
+}
+
+function parsePlainText(raw) {
+  const text = raw.trim();
+  if (!text) return null;
+
+  // Try to extract symbol (first word-like token, usually all caps, may include / or =)
+  const symbolMatch = text.match(/\b([A-Z]{2,10}(?:\/[A-Z]{3})?(?:=[A-Z])?)\b/);
+  const symbol = symbolMatch ? symbolMatch[1] : "UNKNOWN";
+
+  // Try to extract timeframe (digits + m/h/d/w/M suffix, or bare number near start)
+  const tfMatch = text.match(/\b(\d{1,3})\s*([mhHdDwWM](?:in)?)\b/i);
+  let timeframe = "";
+  if (tfMatch) {
+    const num = tfMatch[1];
+    const unit = tfMatch[2].toLowerCase().charAt(0);
+    const unitMap = { m: "m", h: "h", d: "D", w: "W" };
+    timeframe = `${num}${unitMap[unit] || unit}`;
+  } else {
+    // Bare number after symbol+comma: "BTCUSD, 5 Crossing..."
+    const bareNum = text.match(/,\s*(\d{1,4})\b/);
+    if (bareNum) timeframe = `${bareNum[1]}m`;
+  }
+
+  // Try to extract a price value
+  const priceMatch = text.match(/(?:value|price|close|=)\s*[:=]?\s*([\d,.]+)/i);
+  const close = priceMatch ? Number(priceMatch[1].replace(/,/g, "")) || null : null;
+
+  // Infer bias from keywords
+  let bias = "NEUTRAL";
+  if (/crossing\s*up|bullish|breakout|long|bounce/i.test(text)) bias = "BULLISH";
+  else if (/crossing\s*down|bearish|breakdown|short|rejection/i.test(text)) bias = "BEARISH";
+
+  // Build the description from the full text
+  return {
+    symbol,
+    timeframe,
+    close,
+    bias,
+    confluence: "LOW",
+    score: 0,
+    rsi: null,
+    macd_hist: null,
+    setup_id: `tv_alert_${symbol.replace(/\//g, "")}`.toLowerCase(),
+    setup_stage: "alert",
+    alert_text: text,
+    source_format: "plain_text"
+  };
+}
+
 function maybeNumber(value, fallback = null) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
@@ -343,13 +433,35 @@ const server = http.createServer(async (req, res) => {
 
     const raw = await readBody(req);
     const parsed = parseJson(raw);
-    if (!parsed.ok) {
-      const preview = raw.replace(/\s+/g, " ").slice(0, 240);
-      console.log(`[webhook] request_rejected id=${requestId} reason=invalid_json raw_preview="${preview}"`);
-      return json(res, 400, { ok: false, error: "Invalid JSON", detail: parsed.error });
+
+    let payload;
+    let sourceFormat = "json";
+
+    if (parsed.ok) {
+      payload = normalizePayload(parsed.data);
+    } else {
+      // Try to salvage truncated JSON by extracting key-value pairs
+      const salvaged = salvageTruncatedJson(raw);
+      if (salvaged) {
+        payload = normalizePayload(salvaged);
+        sourceFormat = "truncated_json";
+        console.log(`[webhook] salvaged_truncated_json id=${requestId} symbol=${payload.symbol}`);
+      } else {
+        // Fall back to plain text parsing
+        const plainData = parsePlainText(raw);
+        if (plainData) {
+          payload = normalizePayload(plainData);
+          sourceFormat = "plain_text";
+          console.log(`[webhook] parsed_plain_text id=${requestId} symbol=${payload.symbol} text="${raw.slice(0, 120)}"`);
+        } else {
+          const preview = raw.replace(/\s+/g, " ").slice(0, 240);
+          console.log(`[webhook] request_rejected id=${requestId} reason=unparseable raw_preview="${preview}"`);
+          return json(res, 400, { ok: false, error: "Could not parse payload", detail: parsed.error });
+        }
+      }
     }
 
-    const payload = normalizePayload(parsed.data);
+    payload.source_format = sourceFormat;
     const missing = validatePayload(payload);
     const mismatch_flags = inferMismatchFlags(payload);
 
