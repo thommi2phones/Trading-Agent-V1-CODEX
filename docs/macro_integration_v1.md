@@ -95,7 +95,22 @@ is a pure function. It returns a **new** decision object. Rules:
 | base action `SHORT` and `gate_suggestion.allow_short === false` | action → `WAIT`; risk_tier → `BLOCKED`; add `macro_disagrees_short` |
 | base action `LONG` and direction `bullish` | add `macro_agrees_long` |
 | base action `SHORT` and direction `bearish` | add `macro_agrees_short` |
-| action `LONG|SHORT` and `size_multiplier < 1.0` | add `macro_size_cap:<x.xx>`; set `decision.macro_size_multiplier` |
+| agreement + confidence-scaled sizing (see `lib/macro_sizing.js`) | set `decision.size_multiplier`; add `macro_size_boost:<x.xx>` \| `macro_size_hold` \| `macro_size_cap:<x.xx>` |
+
+The sizing formula lives in `lib/macro_sizing.js`:
+
+```
+base   = gate_suggestion.size_multiplier (fallback 1.0)
+scale  = confidence <= 0.5   -> 1.0
+         confidence <= 0.75  -> 1.25
+         confidence >  0.75  -> 1.5
+final  = min(base * scale, base * 2.0, 2.0)
+```
+
+`decision.size_multiplier` is only emitted on agreement (bullish+LONG or
+bearish+SHORT) OR on disagreement where `base < 1.0` (downscale
+passthrough). The full reason-code vocabulary is documented in
+[`claude_agent_contract.md`](./claude_agent_contract.md#macro-reason-codes-since-v11).
 
 In all cases the resolved view (or a sentinel for missing) is attached
 to `decision.macro_view_at_entry`. That field is persisted via
@@ -130,8 +145,7 @@ record even if later events are processed.
 
 - Per-TP partial exit accounting. `pnl_r` today reflects the most advanced
   TP hit (or -1.0 on stop). Multi-TP scaling remains a follow-up.
-- Confidence-aware sizing. Today, `size_multiplier` is captured and
-  annotated but does not change the risk tier beyond the existing
-  A/B/C/BLOCKED mapping.
 - Macro regime change → active-setup invalidation. Future extension listed
   in macro-analyzer's integration doc.
+- Order-router consumption of `decision.size_multiplier`. The field is
+  emitted and persisted in snapshots; no execution layer reads it yet.

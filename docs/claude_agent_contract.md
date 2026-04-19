@@ -49,3 +49,43 @@ Use TradingView webhook payload as structured confirmation data, and keep screen
    - `LOW`: missing structure/fib confluence or conflicting momentum
 4. Return the 9-part output block exactly.
 5. If taxonomy fields are missing or contradictory with image interpretation, emit mismatch flags and downgrade confidence.
+
+## Macro reason codes (since v1.1)
+
+When the macro-analyzer integration is enabled (`MACRO_ANALYZER_URL` set),
+`lib/macro_gate.js#applyMacroGate` annotates every gated decision with
+reason codes from the vocabulary below. Downstream consumers (LLM
+prompts, order routers, observability dashboards) should treat this set
+as stable.
+
+| code | meaning | decision effect |
+|---|---|---|
+| `macro_agrees_long` | view `direction=bullish`, base action `LONG`, `allow_long=true` | annotation only |
+| `macro_agrees_short` | view `direction=bearish`, base action `SHORT`, `allow_short=true` | annotation only |
+| `macro_direction_bullish` | view bullish but base action is `SHORT` | annotation only (no block on its own; the `allow_short` flag drives the block) |
+| `macro_direction_bearish` | view bearish but base action is `LONG` | annotation only |
+| `macro_disagrees_long` | base action `LONG` but `allow_long=false` | action → `WAIT`; risk_tier → `BLOCKED` |
+| `macro_disagrees_short` | base action `SHORT` but `allow_short=false` | action → `WAIT`; risk_tier → `BLOCKED` |
+| `macro_view_unknown` | view returned with `direction=unknown` | none (snapshot recorded; no sizing) |
+| `macro_unavailable` | `MACRO_ANALYZER_URL` set but view is `null` (timeout/5xx/malformed) | none |
+| `macro_size_boost:<x.xx>` | agreement + confidence > 0.5 produced `size_multiplier > 1.0` | `decision.size_multiplier` set |
+| `macro_size_hold` | agreement but sizing resolves to 1.0 | `decision.size_multiplier = 1.0` |
+| `macro_size_cap:<x.xx>` | sizing resolved below 1.0 (gate base < 1.0 or disagreement with downscale) | `decision.size_multiplier` set |
+
+Sizing formula (see `lib/macro_sizing.js`):
+
+```
+base   = gate.size_multiplier (fallback 1.0)
+scale  = confidence <= 0.5   -> 1.0
+         confidence <= 0.75  -> 1.25
+         confidence >  0.75  -> 1.5
+final  = min(base * scale, base * 2.0, 2.0)
+```
+
+`final` is only emitted when the base action is `LONG`/`SHORT` and either
+agrees with direction (boost path) or disagrees with `base < 1.0`
+(downscale passthrough). In all other cases `decision.size_multiplier`
+is absent and no size reason is emitted.
+
+When the integration is disabled (`MACRO_ANALYZER_URL` unset), none of
+these codes appear and behavior is byte-equivalent to pre-macro.
