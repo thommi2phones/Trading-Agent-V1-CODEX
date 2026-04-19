@@ -189,11 +189,37 @@ long, `-1` for short.
 Weights must sum to 1.0 across three entries; malformed env values
 warn and fall back to the default.
 
+## Regime-change sidecar
+
+`scripts/poll_macro_regime.js` wraps `pollOnce()` in a long-running
+loop. On each detected change (after the first observation) it writes
+a synthetic event into `webhook/data/events.ndjson` with:
+
+```
+{
+  event_id:    "regime_<ts>_<rand>",
+  source:      "macro_regime_watcher",
+  accepted:    true,
+  payload: {
+    event_kind:                  "macro_regime_change",
+    from_regime:                 "risk-on",
+    to_regime:                   "risk-off",
+    first_observation:           false,
+    observed_at:                 ISO8601,
+    last_updated:                ISO8601,
+    stale_active_setups:         [setup_id, ...],
+    stale_active_setups_detail:  [{ setup_id, entry_regime, current_regime }, ...]
+  }
+}
+```
+
+Visible to the dashboard via the existing
+`GET /events/latest` + `GET /events?setup_id=...` APIs. The sidecar
+does not re-gate or cancel — that's a future policy layer. Supports
+`--once`, `--poll-ms N`, `--dry-run`.
+
 ## Not in scope (yet)
 
-- A long-running regime-change sidecar. `pollOnce()` is in place; the
-  loop that invokes it on a cron / with graceful shutdown is a small
-  follow-up script.
 - Order-router consumption of `decision.size_multiplier`. The field is
   emitted and persisted in snapshots; no execution layer reads it yet.
 - Trailing-stop / breakeven-after-tp1 policy. The current pnl_r model

@@ -15,6 +15,7 @@ in `webhook/data/events.ndjson` and `data/macro_snapshots/`.
 | Webhook server | `node webhook/server.js` | Receives TradingView webhook POSTs, builds `agent_packet`, writes events, serves read APIs. | Yes |
 | Bus watcher (optional) | `node scripts/bus_watcher.js` | Reads perception-bus envelopes from peers and turns them into events. | Only when `BUS_PEERS` configured |
 | Outcome sidecar | `node scripts/post_macro_outcomes.js --poll-ms 60000` | Long-running. Scans terminal events and POSTs `MacroOutcomeReport` to macro-analyzer for source scoring. | Only when `MACRO_ANALYZER_URL` set |
+| Regime-change sidecar | `node scripts/poll_macro_regime.js --poll-ms 60000` | Long-running. Polls `/positioning/regime` and writes a `macro_regime_change` event into `events.ndjson` (including the list of active setups whose entry regime is now stale) whenever the regime string changes. Does not re-gate or cancel on its own. | Only when `MACRO_ANALYZER_URL` set |
 
 The outcome sidecar is safe to restart. It uses `data/macro_snapshots/outcomes.ndjson`
 as its idempotency ledger — setups already marked `posted: true` are
@@ -38,6 +39,10 @@ services:
   - type: worker
     name: trading-agent-outcome-sidecar
     startCommand: node scripts/post_macro_outcomes.js --poll-ms 60000
+
+  - type: worker       # only when MACRO_ANALYZER_URL is set
+    name: trading-agent-regime-sidecar
+    startCommand: node scripts/poll_macro_regime.js --poll-ms 60000
 
   - type: worker       # only when peer repos publish onto the bus
     name: trading-agent-bus-watcher
@@ -107,6 +112,7 @@ non-zero on failure. The full set:
 | `verify_macro_regime.js` | regime watcher: fetchRegime, change detection, stale-setup listing |
 | `verify_partial_fill_pnl.js` | per-TP weighted `pnl_r` formula under the scale-out model |
 | `verify_macro_summary.js` | UI-facing `decision.macro_summary` derivation |
+| `verify_regime_sidecar.js` | regime-change sidecar event writes, stale-setup inclusion, dry-run, first-observation skip |
 
 `scripts/verify_docs.js` complements these by checking doc references
 don't rot (every file referenced in docs exists; every verify script
