@@ -91,6 +91,37 @@ Files:
 
 ## Latest Accomplishments (Most Recent Session)
 
+0. Session update (April 19, 2026) — Claude
+- Completed the five-slice perception-architecture rollout. All five
+  slices have green verification suites on branches:
+  1. `claude/foundation-packet-lib` — extracted packet + events_store into `lib/` with parity test
+  2. `claude/bus-contract` — `lib/agent_bus.js`, envelope contract, peer registry
+  3. `claude/tv-direct` — direct ingest lane (`tv_direct/index.js`) with pine + raw stub adapters
+  4. `claude/bus-watcher` — peer polling + request lifecycle under `scripts/bus_watcher.js`
+  5. `claude/macro-client` — HTTP client, gate, snapshot store, outcome poster for macro-analyzer
+- Layered three follow-up slices on top (stacked branches):
+  6. `claude/sizing-and-asset-mapper` — `lib/macro_sizing.js` (agreement-boost formula:
+     `final = min(base * scale(confidence), base * 2.0, 2.0)` with scale 1.0/1.25/1.5
+     across confidence tiers 0.5/0.75/>0.75) + `lib/asset_class.js` starter
+     symbol→class mapper threaded through `fetchMacroView`. 13-row table
+     verification in `verify_macro_sizing.js`.
+  7. `claude/docs-macro-contract` — documented the full macro reason-code
+     vocabulary in `docs/claude_agent_contract.md` (macro_agrees_*,
+     macro_disagrees_*, macro_view_unknown, macro_unavailable,
+     macro_size_boost:<x.xx>, macro_size_hold, macro_size_cap:<x.xx>).
+  8. `claude/ops-outcome-sidecar` — `docs/operations.md` with process
+     layout, env vars, graceful-degradation contract, Render worker
+     sketch. `scripts/verify_docs.js` catches doc drift.
+- Key architectural note: the **internal perception bus** (peer repos
+  sharing envelopes) and the **macro HTTP integration** (GET
+  /positioning/view, POST /source-scoring/outcome) are two different
+  contracts that coexist. They must not be conflated: the bus is JSON
+  envelopes with a `to_agent_role`; the macro integration is a
+  request/response HTTP contract pinned at schema v1.0.0.
+- Graceful degradation is tested in every suite: `MACRO_ANALYZER_URL`
+  unset → byte-equivalent pre-macro behavior; peer down → local event
+  still written; timeout/5xx → `null` from client, never exceptions.
+
 0. Session update (March 8, 2026) — Codex
 - Completed GitHub auth scope upgrade (`workflow`) and successfully pushed scheduled sync workflow:
   - `.github/workflows/sync-trade-memory-vector-store.yml`
