@@ -94,6 +94,9 @@ async function main() {
   check("btc gated: action remains LONG", gatedBtc.action === "LONG");
   check("btc gated: reason macro_agrees_long", gatedBtc.reason_codes.includes("macro_agrees_long"));
   check("btc gated: no macro_disagrees", !gatedBtc.reason_codes.some((r) => r.startsWith("macro_disagrees")));
+  // BTC mock view has confidence 0.72 (mid tier) and base 1.0 -> boost 1.25
+  check("btc gated: size_multiplier boosted to 1.25", gatedBtc.size_multiplier === 1.25);
+  check("btc gated: reason macro_size_boost:1.25", gatedBtc.reason_codes.includes("macro_size_boost:1.25"));
 
   console.log("[macro-test] applyMacroGate — unknown direction yields unknown reason");
   const xView = await macroClient.fetchMacroView({ asset: "ZZZZ" });
@@ -116,6 +119,19 @@ async function main() {
   const gatedAgain = await gateDecisionWithMacro(baseLong, packetApple);
   const snapRecord2 = snapshotStore.readSnapshot("setup_apple_test");
   check("snapshot immutable after first save", JSON.stringify(snapRecord2) === firstSnap);
+
+  console.log("[macro-test] asset_class threaded end-to-end via gateDecisionWithMacro");
+  const sliceStart = mock.received.views.length;
+  await gateDecisionWithMacro({ ...baseLong }, { symbol: "AAPL", setup_id: "setup_asset_class_aapl" });
+  await gateDecisionWithMacro({ ...baseLong }, { symbol: "BTCUSDT", setup_id: "setup_asset_class_btc" });
+  await gateDecisionWithMacro({ ...baseLong }, { symbol: "ZZZZ", setup_id: "setup_asset_class_unknown" });
+  const slice = mock.received.views.slice(sliceStart);
+  const aaplQuery = slice.find((q) => q.asset === "AAPL");
+  const btcQuery = slice.find((q) => q.asset === "BTCUSDT");
+  const zzzzQuery = slice.find((q) => q.asset === "ZZZZ");
+  check("AAPL query carries asset_class=equities", aaplQuery?.asset_class === "equities");
+  check("BTCUSDT query carries asset_class=crypto", btcQuery?.asset_class === "crypto");
+  check("unknown symbol omits asset_class", zzzzQuery?.asset_class === "");
 
   console.log("[macro-test] end-to-end via tv_direct.ingest (macro consulted inline)");
   // Supply entry/stop/tp so base decision produces LONG; macro then blocks.
