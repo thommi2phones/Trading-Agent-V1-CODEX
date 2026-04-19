@@ -103,6 +103,7 @@ non-zero on failure. The full set:
 | `verify_bus_watcher.js` | peer polling + request lifecycle |
 | `verify_macro_client.js` | macro HTTP client, gate, snapshot store, outcome poster, asset_class threading |
 | `verify_macro_sizing.js` | `computeSizingFromMacroView` formula across confidence x direction x gate-base matrix |
+| `verify_macro_regime.js` | regime watcher: fetchRegime, change detection, stale-setup listing |
 
 `scripts/verify_docs.js` complements these by checking doc references
 don't rot (every file referenced in docs exists; every verify script

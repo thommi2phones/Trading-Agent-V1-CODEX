@@ -62,8 +62,9 @@ function readBody(req) {
   });
 }
 
-function start({ port = 0, views = {}, outcomes = [] } = {}) {
-  const received = { views: [], outcomes: [] };
+function start({ port = 0, views = {}, outcomes = [], regime = { regime: "mock-regime" } } = {}) {
+  const received = { views: [], outcomes: [], regime: [] };
+  const regimeState = { current: regime };
 
   const server = http.createServer(async (req, res) => {
     const parsed = new URL(req.url, `http://${req.headers.host}`);
@@ -79,8 +80,13 @@ function start({ port = 0, views = {}, outcomes = [] } = {}) {
     }
 
     if (req.method === "GET" && parsed.pathname === "/positioning/regime") {
+      received.regime.push({ ts: new Date().toISOString() });
+      const body = {
+        regime: regimeState.current.regime || "mock-regime",
+        last_updated: regimeState.current.last_updated || new Date().toISOString()
+      };
       res.writeHead(200, { "Content-Type": "application/json" });
-      return res.end(JSON.stringify({ regime: "mock-regime", last_updated: new Date().toISOString() }));
+      return res.end(JSON.stringify(body));
     }
 
     if (req.method === "POST" && parsed.pathname === "/source-scoring/outcome") {
@@ -117,6 +123,9 @@ function start({ port = 0, views = {}, outcomes = [] } = {}) {
         port: actualPort,
         received,
         outcomes,
+        setRegime: (regime, last_updated) => {
+          regimeState.current = { regime, last_updated: last_updated || new Date().toISOString() };
+        },
         close: () => new Promise((r) => server.close(() => r()))
       });
     });

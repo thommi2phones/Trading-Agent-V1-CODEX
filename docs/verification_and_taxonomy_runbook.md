@@ -97,6 +97,7 @@ pass before merging to main. Run them individually or as a batch:
 | `verify_bus_watcher.js` | bus peer polling + request lifecycle |
 | `verify_macro_client.js` | macro HTTP client + gate + snapshots + outcome poster + asset_class threading |
 | `verify_macro_sizing.js` | `computeSizingFromMacroView` agreement-boost formula |
+| `verify_macro_regime.js` | regime watcher: `fetchRegime`, change detection, stale-setup listing |
 | `verify_docs.js` | doc references resolve; every listed verify script exists |
 
 Operational context (processes, env vars, graceful-degradation contract)

@@ -148,11 +148,31 @@ record even if later events are processed.
 | `scripts/verify_macro_client.js` | end-to-end verification suite |
 | `docs/macro_integration_v1.md` | this document |
 
+## Regime watcher
+
+`lib/macro_regime_watcher.js` exposes the plumbing for the "regime
+change → active-setup invalidation" flow. Key functions:
+
+| function | purpose |
+|---|---|
+| `pollOnce()` | Fetches `/positioning/regime`, compares to the cached last regime, returns `{ ok, current, previous, change, stale_active_setups }` |
+| `readLastRegime()` / `writeLastRegime()` | JSON cache at `${MACRO_SNAPSHOT_DIR}/_regime.json` |
+| `detectRegimeChange(prev, curr)` | Pure diff; returns `{ changed, from, to, first_observation }` |
+| `listActiveSetupsWithStaleRegime(currentRegime)` | Scans snapshot store for setups whose entry regime != current AND whose outcome has not yet been posted |
+
+What the watcher does NOT do: it does not re-gate or cancel anything on
+its own. It surfaces the list of stale setups so a caller (future
+regime-change sidecar) can decide policy — re-gate, demote risk_tier,
+emit a warning event, etc. The gating decision path itself still relies
+on per-asset `MacroPositioningView` (which already carries `regime` in
+the view payload, snapshotted at entry).
+
 ## Not in scope (yet)
 
 - Per-TP partial exit accounting. `pnl_r` today reflects the most advanced
   TP hit (or -1.0 on stop). Multi-TP scaling remains a follow-up.
-- Macro regime change → active-setup invalidation. Future extension listed
-  in macro-analyzer's integration doc.
+- A long-running regime-change sidecar. `pollOnce()` is in place; the
+  loop that invokes it on a cron / with graceful shutdown is a small
+  follow-up script.
 - Order-router consumption of `decision.size_multiplier`. The field is
   emitted and persisted in snapshots; no execution layer reads it yet.
