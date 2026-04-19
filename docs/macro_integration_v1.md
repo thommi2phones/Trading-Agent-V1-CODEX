@@ -8,6 +8,13 @@ and [`integration_schema/macro_schema_v1.0.0.json`](https://github.com/thommi2ph
 
 **Schema contract version:** `1.0.0` (tracked in `lib/macro_client.js#CONTRACT_VERSION`).
 
+**Authoritative source:** the JSON schema, not the narrative doc. Field
+bounds we rely on (per `integration_schema/macro_schema_v1.0.0.json`
+and the Pydantic models in `src/macro_positioning/integration/contracts.py`):
+`gate_suggestion.size_multiplier` is `0.0-2.0`, `confidence` is `0.0-1.0`,
+`direction` is one of `bullish|bearish|neutral|mixed|watchful|unknown`.
+If the narrative doc disagrees with any of these, the schema wins.
+
 ## Design principle — graceful degradation
 
 Both sides **must work without the other**. When `MACRO_ANALYZER_URL` is

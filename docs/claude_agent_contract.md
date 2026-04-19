@@ -58,15 +58,22 @@ reason codes from the vocabulary below. Downstream consumers (LLM
 prompts, order routers, observability dashboards) should treat this set
 as stable.
 
+The macro-analyzer's `direction` enum has six values
+(`bullish|bearish|neutral|mixed|watchful|unknown`). The table below
+covers all six.
+
 | code | meaning | decision effect |
 |---|---|---|
 | `macro_agrees_long` | view `direction=bullish`, base action `LONG`, `allow_long=true` | annotation only |
 | `macro_agrees_short` | view `direction=bearish`, base action `SHORT`, `allow_short=true` | annotation only |
 | `macro_direction_bullish` | view bullish but base action is `SHORT` | annotation only (no block on its own; the `allow_short` flag drives the block) |
 | `macro_direction_bearish` | view bearish but base action is `LONG` | annotation only |
+| `macro_direction_neutral` | view direction is `neutral` — macro has no net bias | annotation only; gate defaults (`allow_long=true`, `allow_short=true`, size=1.0) |
+| `macro_direction_mixed` | view direction is `mixed` — macro sees both sides | annotation only; gate defaults as above |
+| `macro_direction_watchful` | view direction is `watchful` — macro is reducing risk across the board | annotation + typically pairs with `macro_size_cap:0.50` |
 | `macro_disagrees_long` | base action `LONG` but `allow_long=false` | action → `WAIT`; risk_tier → `BLOCKED` |
 | `macro_disagrees_short` | base action `SHORT` but `allow_short=false` | action → `WAIT`; risk_tier → `BLOCKED` |
-| `macro_view_unknown` | view returned with `direction=unknown` | none (snapshot recorded; no sizing) |
+| `macro_view_unknown` | view returned with `direction=unknown` | early return; no direction annotation, no sizing |
 | `macro_unavailable` | `MACRO_ANALYZER_URL` set but view is `null` (timeout/5xx/malformed) | none |
 | `macro_size_boost:<x.xx>` | agreement + confidence > 0.5 produced `size_multiplier > 1.0` | `decision.size_multiplier` set |
 | `macro_size_hold` | agreement but sizing resolves to 1.0 | `decision.size_multiplier = 1.0` |
@@ -89,3 +96,13 @@ is absent and no size reason is emitted.
 
 When the integration is disabled (`MACRO_ANALYZER_URL` unset), none of
 these codes appear and behavior is byte-equivalent to pre-macro.
+
+### Authoritative schema
+
+The bounds on every field above come from
+[`integration_schema/macro_schema_v1.0.0.json`](https://github.com/thommi2phones/macro-analyzer/blob/main/integration_schema/macro_schema_v1.0.0.json)
+on the macro-analyzer side (`size_multiplier` is bounded `0.0-2.0`;
+`confidence` is bounded `0.0-1.0`). If the narrative integration doc
+disagrees with the JSON schema, the schema wins — it's what the
+Pydantic contracts in `src/macro_positioning/integration/contracts.py`
+actually enforce.

@@ -98,6 +98,31 @@ async function main() {
   check("btc gated: size_multiplier boosted to 1.25", gatedBtc.size_multiplier === 1.25);
   check("btc gated: reason macro_size_boost:1.25", gatedBtc.reason_codes.includes("macro_size_boost:1.25"));
 
+  console.log("[macro-test] applyMacroGate — watchful direction downscales both sides");
+  const watchfulView = {
+    contract_version: "1.0.0", asset: "GLD", asset_class: "commodities",
+    direction: "watchful", confidence: 0.6, horizon: "2-4 weeks",
+    source_theses: ["thesis_watchful_1"], regime: "late-cycle",
+    last_updated: new Date().toISOString(),
+    gate_suggestion: { allow_long: true, allow_short: true, size_multiplier: 0.5, notes: "Macro watchful — reduce size" }
+  };
+  const gatedWatchful = applyMacroGate(baseLong, { symbol: "GLD", setup_id: "setup_watchful" }, watchfulView);
+  check("watchful: action remains LONG (both sides allowed)", gatedWatchful.action === "LONG");
+  check("watchful: reason macro_direction_watchful emitted", gatedWatchful.reason_codes.includes("macro_direction_watchful"));
+  check("watchful: size_multiplier downscaled to 0.5", gatedWatchful.size_multiplier === 0.5);
+  check("watchful: reason macro_size_cap:0.50", gatedWatchful.reason_codes.includes("macro_size_cap:0.50"));
+
+  console.log("[macro-test] applyMacroGate — neutral/mixed pass through with annotation, no sizing");
+  const neutralView = { ...watchfulView, direction: "neutral", gate_suggestion: { allow_long: true, allow_short: true, size_multiplier: 1.0, notes: "" } };
+  const gatedNeutral = applyMacroGate(baseLong, { symbol: "GLD", setup_id: "setup_neutral" }, neutralView);
+  check("neutral: action preserved", gatedNeutral.action === "LONG");
+  check("neutral: reason macro_direction_neutral", gatedNeutral.reason_codes.includes("macro_direction_neutral"));
+  check("neutral: no size_multiplier attached", gatedNeutral.size_multiplier === undefined);
+  const mixedView = { ...watchfulView, direction: "mixed", gate_suggestion: { allow_long: true, allow_short: true, size_multiplier: 1.0, notes: "" } };
+  const gatedMixed = applyMacroGate(baseLong, { symbol: "GLD", setup_id: "setup_mixed" }, mixedView);
+  check("mixed: reason macro_direction_mixed", gatedMixed.reason_codes.includes("macro_direction_mixed"));
+  check("mixed: no size_multiplier attached", gatedMixed.size_multiplier === undefined);
+
   console.log("[macro-test] applyMacroGate — unknown direction yields unknown reason");
   const xView = await macroClient.fetchMacroView({ asset: "ZZZZ" });
   const gatedX = applyMacroGate(baseLong, { symbol: "ZZZZ", setup_id: "x" }, xView);

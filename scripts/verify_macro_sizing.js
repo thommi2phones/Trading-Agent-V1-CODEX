@@ -100,6 +100,31 @@ const CASES = [
     view: { direction: "bullish", confidence: 0.3 },
     action: "LONG",
     expect: { size_multiplier: 1.0, reason: "macro_size_hold" }
+  },
+  // --- Full direction enum coverage (macro-analyzer emits six values) ---
+  {
+    name: "direction=watchful (non-bullish/bearish), base 0.5, LONG -> downscale cap 0.50",
+    view: { direction: "watchful", confidence: 0.6, gate_suggestion: { allow_long: true, allow_short: true, size_multiplier: 0.5 } },
+    action: "LONG",
+    expect: { size_multiplier: 0.5, reason: "macro_size_cap:0.50" }
+  },
+  {
+    name: "direction=watchful, base 0.5, SHORT -> downscale cap 0.50 (symmetric)",
+    view: { direction: "watchful", confidence: 0.6, gate_suggestion: { allow_long: true, allow_short: true, size_multiplier: 0.5 } },
+    action: "SHORT",
+    expect: { size_multiplier: 0.5, reason: "macro_size_cap:0.50" }
+  },
+  {
+    name: "direction=neutral, base 1.0, LONG -> no sizing (macro has no bias)",
+    view: { direction: "neutral", confidence: 0.5, gate_suggestion: { allow_long: true, allow_short: true, size_multiplier: 1.0 } },
+    action: "LONG",
+    expect: { size_multiplier: null, reason: "no_macro_sizing" }
+  },
+  {
+    name: "direction=mixed, base 1.0, SHORT -> no sizing",
+    view: { direction: "mixed", confidence: 0.6, gate_suggestion: { allow_long: true, allow_short: true, size_multiplier: 1.0 } },
+    action: "SHORT",
+    expect: { size_multiplier: null, reason: "no_macro_sizing" }
   }
 ];
 
