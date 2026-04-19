@@ -19,6 +19,7 @@ const {
   readRecentEvents,
   writeAgentInbox: writeAgentInboxToDir
 } = require("../lib/events_store");
+const { gateDecisionWithMacro } = require("../lib/macro_decision");
 
 const PORT = Number(process.env.PORT || 8787);
 const AGENT_FORWARD_URL = process.env.AGENT_FORWARD_URL || "";
@@ -245,7 +246,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     const agentPacket = buildAgentPacket(latestEvent);
-    const decision = evaluateDecision(agentPacket);
+    const baseDecision = evaluateDecision(agentPacket);
+    const decision = await gateDecisionWithMacro(baseDecision, agentPacket);
 
     return json(res, 200, {
       ok: true,

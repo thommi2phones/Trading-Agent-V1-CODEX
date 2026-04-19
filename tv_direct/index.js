@@ -36,6 +36,7 @@ const {
   publish: publishEnvelope
 } = require("../lib/agent_bus");
 const { evaluateDecision } = require("../webhook/decision");
+const { gateDecisionWithMacro } = require("../lib/macro_decision");
 
 const { readPineSnapshot } = require("./adapters/pine_snapshot");
 const { readRawBars } = require("./adapters/raw_bars");
@@ -60,7 +61,8 @@ async function persistAndPublish({ payload, source, agentId, requestEnvelope }) 
   writeEvent(event);
 
   const agent_packet = buildAgentPacket(event);
-  const decision = evaluateDecision(agent_packet);
+  const baseDecision = evaluateDecision(agent_packet);
+  const decision = await gateDecisionWithMacro(baseDecision, agent_packet);
 
   const responseEnvelope = buildEnvelope({
     direction: "outbound",

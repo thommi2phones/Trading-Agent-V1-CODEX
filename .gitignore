@@ -12,3 +12,6 @@ coordination/bus/*/*
 
 # Runtime vector-store sync state
 data/trade_memory/vector_sync_state.json
+
+# Runtime macro snapshots + outcome log
+data/macro_snapshots/
