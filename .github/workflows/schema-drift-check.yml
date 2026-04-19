@@ -1,0 +1,52 @@
+name: Schema Drift Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'integration/macro_schema.json'
+      - 'webhook/macro_integration.js'
+
+jobs:
+  verify-schema-against-macro:
+    runs-on: ubuntu-latest
+    name: Diff local schema against macro-analyzer source of truth
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract local contract version
+        id: local
+        run: |
+          VERSION=$(grep -oE 'const CONTRACT_VERSION = "[^"]+"' webhook/macro_integration.js | sed 's/.*"\(.*\)"/\1/')
+          if [ -z "$VERSION" ]; then
+            echo "::error::Could not extract CONTRACT_VERSION from webhook/macro_integration.js"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Local tactical contract version: $VERSION"
+
+      - name: Download macro schema for same version
+        id: fetch
+        run: |
+          VERSION="${{ steps.local.outputs.version }}"
+          URL="https://raw.githubusercontent.com/thommi2phones/macro-analyzer/main/integration_schema/macro_schema_v${VERSION}.json"
+          if ! curl -sf -o /tmp/upstream_schema.json "$URL"; then
+            echo "::error::Could not fetch upstream schema at $URL"
+            echo "Either the version has been bumped on macro side without the mirror PR landing here,"
+            echo "or the version doesn't exist upstream."
+            exit 1
+          fi
+          echo "✓ Downloaded upstream schema v$VERSION"
+
+      - name: Compare local schema against upstream
+        run: |
+          if ! diff -u /tmp/upstream_schema.json integration/macro_schema.json; then
+            echo "::error::Schema drift detected between local and macro-analyzer!"
+            echo "Local integration/macro_schema.json differs from upstream."
+            echo "Wait for the schema-mirror-pr auto-PR from macro-analyzer to land,"
+            echo "or manually sync by copying integration_schema/macro_schema_v*.json from macro-analyzer."
+            exit 1
+          fi
+          echo "✓ Schemas match (contract v${{ steps.local.outputs.version }})"

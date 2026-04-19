@@ -5,14 +5,18 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const { URL } = require("url");
-const { computeLifecycleLatest } = require("./lifecycle");
+const { computeLifecycleLatest, stateFromEvent } = require("./lifecycle");
 const { evaluateDecision } = require("./decision");
 const {
   fetchMacroView,
   applyMacroGate,
   postTradeOutcome,
   buildOutcomeReport,
-  MACRO_ANALYZER_URL
+  storeMacroViewAtEntry,
+  getMacroViewAtEntry,
+  applyRegimeUpdate,
+  MACRO_ANALYZER_URL,
+  CONTRACT_VERSION
 } = require("./macro_integration");
 
 const PORT = Number(process.env.PORT || 8787);
@@ -435,6 +439,91 @@ const server = http.createServer(async (req, res) => {
     });
   }
 
+  // POST /macro/regime-update — receive macro regime-change push from macro-analyzer
+  if (req.method === "POST" && parsedUrl.pathname === "/macro/regime-update") {
+    let regimeRaw;
+    try {
+      regimeRaw = await readBody(req);
+    } catch (err) {
+      return json(res, 400, { ok: false, error: "Body too large or malformed" });
+    }
+    const parsed = parseJson(regimeRaw);
+    if (!parsed.ok) {
+      return json(res, 400, { ok: false, error: "Invalid JSON", detail: parsed.error });
+    }
+    const regimePayload = parsed.data || {};
+
+    // Contract version check
+    if (regimePayload.contract_version && regimePayload.contract_version !== CONTRACT_VERSION) {
+      console.warn(
+        `[macro_integration] regime_update_version_mismatch expected=${CONTRACT_VERSION} got=${regimePayload.contract_version}`
+      );
+    }
+
+    // Log the regime change as an event in events.ndjson
+    const regimeEvent = {
+      event_id: requestId,
+      received_at: new Date().toISOString(),
+      source: "macro_analyzer",
+      event_type: "macro_regime_change",
+      severity: regimePayload.severity || "minor",
+      changes: regimePayload.changes || [],
+      payload: regimePayload.current_regime || {}
+    };
+    writeEvent(regimeEvent);
+
+    // Build active-setups list from recent events to pass into applyRegimeUpdate
+    const recent = readRecentEvents(100, "");
+    const seenSetups = new Set();
+    const activeSetups = [];
+    for (const e of recent) {
+      const p = e.payload || {};
+      if (!p.setup_id || seenSetups.has(p.setup_id)) continue;
+      const stage = (p.setup_stage || "").toLowerCase();
+      // Only include setups in an ACTIVE state (not closed/invalidated)
+      if (["trigger", "in_trade", "tp_zone", "watch"].includes(stage)) {
+        seenSetups.add(p.setup_id);
+        activeSetups.push({
+          setup_id: p.setup_id,
+          symbol: p.symbol,
+          bias: p.bias,
+          stage,
+          theme: (p.pattern_type || "").toLowerCase(),
+        });
+      }
+    }
+
+    const result = applyRegimeUpdate(regimePayload, activeSetups);
+
+    // For each affected setup, write a supplementary event so the lifecycle
+    // timeline shows "macro regime shifted against this setup"
+    for (const affected of result.affected_setups) {
+      writeEvent({
+        event_id: `${requestId}-flag-${affected.setup_id}`,
+        received_at: new Date().toISOString(),
+        source: "macro_analyzer",
+        event_type: "macro_context_shift",
+        payload: {
+          setup_id: affected.setup_id,
+          symbol: affected.symbol,
+          reason: affected.reason,
+        }
+      });
+    }
+
+    console.log(
+      `[macro_integration] regime_update_applied severity=${regimePayload.severity} affected=${result.affected_setups.length} unaffected=${result.unaffected_count}`
+    );
+    return json(res, 200, {
+      ok: true,
+      contract_version: CONTRACT_VERSION,
+      recorded: true,
+      severity: regimePayload.severity || "minor",
+      affected_setups: result.affected_setups,
+      unaffected_count: result.unaffected_count,
+    });
+  }
+
   const webhookPaths = new Set(["/tv-webhook", "/tv-webhook/", "/webhook", "/webhook/"]);
   if (req.method !== "POST" || !webhookPaths.has(parsedUrl.pathname)) {
     console.log(`[webhook] request_ignored id=${requestId} reason=path_or_method_mismatch`);
@@ -493,6 +582,35 @@ const server = http.createServer(async (req, res) => {
     const inboxPath = writeAgentInbox(agentPacket);
     const forwardResult = await forwardToAgent(event, agentPacket);
 
+    // Entry-time macro snapshot capture.
+    // When a setup transitions to 'trigger' or 'in_trade' for the first time,
+    // snapshot macro view so later outcome attribution uses the view at entry
+    // rather than whatever macro happens to say at close time.
+    if (MACRO_ANALYZER_URL && payload.setup_id) {
+      try {
+        const lifecycleState = stateFromEvent(event)?.state || "";
+        const isEntryState = lifecycleState === "trigger" || lifecycleState === "in_trade";
+        const alreadyCached = !!getMacroViewAtEntry(payload.setup_id);
+        if (isEntryState && !alreadyCached) {
+          const entryView = await fetchMacroView(payload.symbol);
+          if (entryView) {
+            storeMacroViewAtEntry(payload.setup_id, entryView);
+            event.macro_view_at_entry = {
+              snapshot_at: new Date().toISOString(),
+              direction: entryView.direction,
+              confidence: entryView.confidence,
+              source_theses: entryView.source_theses || [],
+            };
+            console.log(
+              `[macro_integration] entry_snapshot_stored setup=${payload.setup_id} direction=${entryView.direction} conf=${entryView.confidence}`
+            );
+          }
+        }
+      } catch (err) {
+        console.warn(`[macro_integration] entry_snapshot_error ${err.message || err}`);
+      }
+    }
+
     // Trade outcome feedback → macro-analyzer.
     // Fires on setup close (hit_stop = loss, hit_tp3 = win, hit_tp1/2 = partial).
     // No-ops if MACRO_ANALYZER_URL is not set.
@@ -517,9 +635,13 @@ const server = http.createServer(async (req, res) => {
           pnlR = direction === "long" ? (tp - entry) / risk : (entry - tp) / risk;
         }
 
-        // Fetch macro view now as a snapshot for attribution.
-        // In a future iteration, we should cache the macro view at entry time.
-        const macroSnapshot = await fetchMacroView(payload.symbol);
+        // Prefer the entry-time snapshot (cached at trigger/in_trade).
+        // Fall back to a live fetch only if no entry snapshot exists
+        // (e.g. tactical was offline when the setup first triggered).
+        const cachedEntry = getMacroViewAtEntry(payload.setup_id);
+        const macroSnapshot = cachedEntry
+          ? cachedEntry
+          : await fetchMacroView(payload.symbol);
         const macroViewAtEntry = macroSnapshot
           ? {
               direction: macroSnapshot.direction,

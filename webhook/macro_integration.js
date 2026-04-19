@@ -190,11 +190,92 @@ function buildOutcomeReport({ setupId, symbol, direction, entryTimestamp, exitTi
   };
 }
 
+// ---------------------------------------------------------------------------
+// Entry-time macro snapshots
+// Capture the macro view when a setup transitions to 'trigger' or 'in_trade',
+// so later — at outcome time — we can credit source attribution to what
+// macro said AT ENTRY, not what macro happens to say at close time.
+// ---------------------------------------------------------------------------
+
+const macroEntrySnapshots = new Map();  // setup_id → { snapshot_at, direction, confidence, source_theses }
+
+/**
+ * Store the macro view that was live when a setup first entered trigger/in_trade.
+ * Idempotent: subsequent calls for the same setup_id are ignored so we always
+ * preserve the earliest-entry snapshot.
+ */
+function storeMacroViewAtEntry(setupId, macroView) {
+  if (!setupId || !macroView) return false;
+  if (macroEntrySnapshots.has(setupId)) return false;  // preserve earliest
+  macroEntrySnapshots.set(setupId, {
+    snapshot_at: new Date().toISOString(),
+    direction: macroView.direction || "unknown",
+    confidence: macroView.confidence || 0,
+    source_theses: macroView.source_theses || [],
+  });
+  return true;
+}
+
+function getMacroViewAtEntry(setupId) {
+  if (!setupId) return null;
+  return macroEntrySnapshots.get(setupId) || null;
+}
+
+function clearMacroViewEntrySnapshots() {
+  macroEntrySnapshots.clear();
+}
+
+// ---------------------------------------------------------------------------
+// Apply a regime-change push from the macro side to active tactical setups.
+// ---------------------------------------------------------------------------
+
+/**
+ * Given an incoming regime-update payload from macro and a snapshot of
+ * currently-active setups, identify which setups now conflict with the
+ * macro's new directional bias.
+ *
+ * @param regimePayload  { severity, changes, current_regime: { directional_bias: { theme: dir } } }
+ * @param activeSetups   Array of { setup_id, symbol, bias, stage, theme }
+ * @returns { affected_setups: [{ setup_id, reason }], unaffected_count }
+ */
+function applyRegimeUpdate(regimePayload, activeSetups) {
+  const affected = [];
+  const biases = regimePayload?.current_regime?.directional_bias || {};
+  if (!Object.keys(biases).length) return { affected_setups: [], unaffected_count: (activeSetups || []).length };
+
+  for (const setup of activeSetups || []) {
+    const theme = (setup.theme || "").toLowerCase();
+    const setupBias = (setup.bias || "").toLowerCase();
+    const macroBias = (biases[theme] || "").toLowerCase();
+    if (!macroBias || macroBias === "unknown") continue;
+
+    const conflict =
+      (setupBias === "bullish" && macroBias === "bearish") ||
+      (setupBias === "bearish" && macroBias === "bullish");
+    if (conflict) {
+      affected.push({
+        setup_id: setup.setup_id,
+        symbol: setup.symbol,
+        reason: `macro ${theme} shifted to ${macroBias} against setup bias ${setupBias}`,
+      });
+    }
+  }
+
+  return {
+    affected_setups: affected,
+    unaffected_count: (activeSetups || []).length - affected.length,
+  };
+}
+
 module.exports = {
   fetchMacroView,
   applyMacroGate,
   postTradeOutcome,
   buildOutcomeReport,
+  storeMacroViewAtEntry,
+  getMacroViewAtEntry,
+  clearMacroViewEntrySnapshots,
+  applyRegimeUpdate,
   CONTRACT_VERSION,
   MACRO_ANALYZER_URL
 };
