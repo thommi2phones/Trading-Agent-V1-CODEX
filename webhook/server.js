@@ -7,6 +7,13 @@ const path = require("path");
 const { URL } = require("url");
 const { computeLifecycleLatest } = require("./lifecycle");
 const { evaluateDecision } = require("./decision");
+const {
+  fetchMacroView,
+  applyMacroGate,
+  postTradeOutcome,
+  buildOutcomeReport,
+  MACRO_ANALYZER_URL
+} = require("./macro_integration");
 
 const PORT = Number(process.env.PORT || 8787);
 const AGENT_FORWARD_URL = process.env.AGENT_FORWARD_URL || "";
@@ -410,7 +417,12 @@ const server = http.createServer(async (req, res) => {
     }
 
     const agentPacket = buildAgentPacket(latestEvent);
-    const decision = evaluateDecision(agentPacket);
+    const baseDecision = evaluateDecision(agentPacket);
+
+    // Macro gate — fetch macro view and apply to decision. No-ops if
+    // MACRO_ANALYZER_URL is not configured or macro service is down.
+    const macroView = await fetchMacroView(agentPacket.symbol);
+    const decision = applyMacroGate(baseDecision, macroView);
 
     return json(res, 200, {
       ok: true,
@@ -418,7 +430,8 @@ const server = http.createServer(async (req, res) => {
       setup_id: agentPacket.setup_id,
       event_id: agentPacket.event_id,
       agent_packet: agentPacket,
-      decision
+      decision,
+      macro_view: macroView
     });
   }
 
@@ -479,6 +492,60 @@ const server = http.createServer(async (req, res) => {
     const agentPacket = buildAgentPacket(event);
     const inboxPath = writeAgentInbox(agentPacket);
     const forwardResult = await forwardToAgent(event, agentPacket);
+
+    // Trade outcome feedback → macro-analyzer.
+    // Fires on setup close (hit_stop = loss, hit_tp3 = win, hit_tp1/2 = partial).
+    // No-ops if MACRO_ANALYZER_URL is not set.
+    if (MACRO_ANALYZER_URL && (payload.hit_stop || payload.hit_tp3 || payload.setup_stage === "closed" || payload.setup_stage === "invalidated")) {
+      try {
+        const direction = (payload.bias || "").toLowerCase() === "bullish" ? "long" : "short";
+        // Rough R-multiple approximation from entry/stop/exit prices.
+        const entry = Number(payload.entry_price) || 0;
+        const stop = Number(payload.stop_price) || 0;
+        const risk = Math.abs(entry - stop) || 1;
+        let pnlR = 0;
+        if (payload.hit_stop) {
+          pnlR = -1.0;
+        } else if (payload.hit_tp3) {
+          const tp = Number(payload.tp3_price) || entry;
+          pnlR = direction === "long" ? (tp - entry) / risk : (entry - tp) / risk;
+        } else if (payload.hit_tp2) {
+          const tp = Number(payload.tp2_price) || entry;
+          pnlR = direction === "long" ? (tp - entry) / risk : (entry - tp) / risk;
+        } else if (payload.hit_tp1) {
+          const tp = Number(payload.tp1_price) || entry;
+          pnlR = direction === "long" ? (tp - entry) / risk : (entry - tp) / risk;
+        }
+
+        // Fetch macro view now as a snapshot for attribution.
+        // In a future iteration, we should cache the macro view at entry time.
+        const macroSnapshot = await fetchMacroView(payload.symbol);
+        const macroViewAtEntry = macroSnapshot
+          ? {
+              direction: macroSnapshot.direction,
+              confidence: macroSnapshot.confidence,
+              source_theses: macroSnapshot.source_theses || []
+            }
+          : { direction: "unknown", confidence: 0, source_theses: [] };
+
+        const outcomeReport = buildOutcomeReport({
+          setupId: payload.setup_id,
+          symbol: payload.symbol,
+          direction,
+          entryTimestamp: payload.bar_time || event.received_at,
+          exitTimestamp: event.received_at,
+          pnlR,
+          macroViewAtEntry
+        });
+
+        // Fire and forget — don't block the webhook response on macro side
+        postTradeOutcome(outcomeReport).catch((err) =>
+          console.warn(`[macro_integration] outcome_post_async_error ${err.message || err}`)
+        );
+      } catch (err) {
+        console.warn(`[macro_integration] outcome_build_error ${err.message || err}`);
+      }
+    }
 
     console.log(
       `[webhook] request_processed id=${requestId} accepted=${missing.length === 0} symbol=${payload.symbol || "na"} setup_id=${payload.setup_id || "na"} stage=${payload.setup_stage || "na"} confluence=${payload.confluence || "na"}`
