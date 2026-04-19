@@ -106,6 +106,7 @@ non-zero on failure. The full set:
 | `verify_macro_sizing.js` | `computeSizingFromMacroView` formula across confidence x direction x gate-base matrix |
 | `verify_macro_regime.js` | regime watcher: fetchRegime, change detection, stale-setup listing |
 | `verify_partial_fill_pnl.js` | per-TP weighted `pnl_r` formula under the scale-out model |
+| `verify_macro_summary.js` | UI-facing `decision.macro_summary` derivation |
 
 `scripts/verify_docs.js` complements these by checking doc references
 don't rot (every file referenced in docs exists; every verify script

@@ -97,6 +97,32 @@ is absent and no size reason is emitted.
 When the integration is disabled (`MACRO_ANALYZER_URL` unset), none of
 these codes appear and behavior is byte-equivalent to pre-macro.
 
+### Derived summary — `decision.macro_summary`
+
+Every gated decision includes a small, stable `macro_summary` object.
+Downstream consumers (dashboard cards, LLM prompts) should read this
+instead of re-deriving status from `reason_codes`:
+
+```
+{
+  consulted:       bool,                                    // did we call the macro endpoint?
+  direction:       "bullish"|"bearish"|"neutral"|"mixed"|"watchful"|"unknown"|null,
+  agreement:       "agree"|"disagree"|"neutral"|"unknown"|"unavailable"|"not_consulted",
+  size_effect:     "boost"|"hold"|"cap"|"none",
+  size_multiplier: number|null                              // mirrors decision.size_multiplier
+}
+```
+
+`agreement` collapses the full reason-code vocabulary:
+- `agree` — `macro_agrees_{long,short}` fired.
+- `disagree` — action was blocked (`macro_disagrees_{long,short}`).
+- `neutral` — macro had a direction (watchful/neutral/mixed) but no block or alignment.
+- `unknown` — view returned with `direction=unknown`.
+- `unavailable` — `MACRO_ANALYZER_URL` set but view was `null`.
+- `not_consulted` — integration disabled (no URL set).
+
+`size_effect` mirrors whichever `macro_size_*` code fired, or `none`.
+
 ### Authoritative schema
 
 The bounds on every field above come from

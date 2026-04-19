@@ -99,6 +99,7 @@ pass before merging to main. Run them individually or as a batch:
 | `verify_macro_sizing.js` | `computeSizingFromMacroView` agreement-boost formula |
 | `verify_macro_regime.js` | regime watcher: `fetchRegime`, change detection, stale-setup listing |
 | `verify_partial_fill_pnl.js` | per-TP weighted `pnl_r` formula across stop-outs, partial wins, env-var overrides |
+| `verify_macro_summary.js` | `decision.macro_summary` derivation across agree/disagree/neutral/unavailable paths |
 | `verify_docs.js` | doc references resolve; every listed verify script exists |
 
 Operational context (processes, env vars, graceful-degradation contract)
