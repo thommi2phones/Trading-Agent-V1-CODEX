@@ -214,7 +214,9 @@ async function main() {
   const posted = mock.outcomes.find((r) => r.trade_id === "setup_btc_winner");
   check("posted: outcome=win", posted?.outcome === "win");
   check("posted: direction=long", posted?.direction === "long");
-  check("posted: pnl_r ~= 3.0", posted && Math.abs(posted.pnl_r - 3.0) < 0.01);
+  // Under weighted partial-exit model (default 0.5/0.25/0.25):
+  //   r1=1 r2=2 r3=3 -> 0.5*1 + 0.25*2 + 0.25*3 = 1.75
+  check("posted: pnl_r ~= 1.75 (weighted partial exits)", posted && Math.abs(posted.pnl_r - 1.75) < 0.01);
   check("posted: macro_view_at_entry.direction=bullish", posted?.macro_view_at_entry?.direction === "bullish");
   check("posted: contract_version=1.0.0", posted?.contract_version === "1.0.0");
   check("outcomes log records post", snapshotStore.outcomeAlreadyPosted("setup_btc_winner"));

@@ -167,12 +167,36 @@ emit a warning event, etc. The gating decision path itself still relies
 on per-asset `MacroPositioningView` (which already carries `regime` in
 the view payload, snapshotted at entry).
 
+## pnl_r accounting (per-TP partial exits)
+
+`lib/outcome_report.js#computePnlR` uses a scale-out model. Each TP
+closes a fraction of the position per
+`MACRO_PNL_PARTIAL_WEIGHTS` (default `0.5,0.25,0.25` for tp1/tp2/tp3).
+The remaining fraction exits at the most-advanced level reached:
+
+| scenario | formula |
+|---|---|
+| stop, no TPs | `-1.0` |
+| stop after hit_tp1 | `w1*r1 + (1-w1)*(-1.0)` |
+| stop after hit_tp1+hit_tp2 | `w1*r1 + w2*r2 + (1-w1-w2)*(-1.0)` |
+| hit_tp1 (closed at tp1) | `1.0 * r1` (remaining fraction exits at tp1) |
+| hit_tp2 (no tp3) | `w1*r1 + (1-w1)*r2` |
+| hit_tp3 (full winner) | `w1*r1 + w2*r2 + w3*r3` |
+
+`r_i = sign * (tp_i - entry) / |entry - stop|` where `sign = +1` for
+long, `-1` for short.
+
+Weights must sum to 1.0 across three entries; malformed env values
+warn and fall back to the default.
+
 ## Not in scope (yet)
 
-- Per-TP partial exit accounting. `pnl_r` today reflects the most advanced
-  TP hit (or -1.0 on stop). Multi-TP scaling remains a follow-up.
 - A long-running regime-change sidecar. `pollOnce()` is in place; the
   loop that invokes it on a cron / with graceful shutdown is a small
   follow-up script.
 - Order-router consumption of `decision.size_multiplier`. The field is
   emitted and persisted in snapshots; no execution layer reads it yet.
+- Trailing-stop / breakeven-after-tp1 policy. The current pnl_r model
+  assumes the original stop is static; if a setup would have trailed
+  the stop after hit_tp1, the formula under-reports the runner's pnl
+  on a subsequent stop-out.

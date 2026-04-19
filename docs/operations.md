@@ -71,6 +71,7 @@ services:
 | `MACRO_ANALYZER_BEARER` | unset | optional bearer token |
 | `MACRO_ANALYZER_TIMEOUT_MS` | `3000` | per-request timeout |
 | `MACRO_SNAPSHOT_DIR` | `data/macro_snapshots` | snapshot + outcome-log directory |
+| `MACRO_PNL_PARTIAL_WEIGHTS` | `0.5,0.25,0.25` | scale-out weights for tp1,tp2,tp3 in `pnl_r`. Must sum to 1.0 or we fall back to default. |
 
 ## Graceful-degradation contract
 
@@ -104,6 +105,7 @@ non-zero on failure. The full set:
 | `verify_macro_client.js` | macro HTTP client, gate, snapshot store, outcome poster, asset_class threading |
 | `verify_macro_sizing.js` | `computeSizingFromMacroView` formula across confidence x direction x gate-base matrix |
 | `verify_macro_regime.js` | regime watcher: fetchRegime, change detection, stale-setup listing |
+| `verify_partial_fill_pnl.js` | per-TP weighted `pnl_r` formula under the scale-out model |
 
 `scripts/verify_docs.js` complements these by checking doc references
 don't rot (every file referenced in docs exists; every verify script
