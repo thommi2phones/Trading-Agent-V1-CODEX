@@ -6,5 +6,9 @@ node_modules/
 webhook/data/*
 !webhook/data/.gitkeep
 
+# Runtime perception bus envelopes (keep dir structure, ignore contents)
+coordination/bus/*/*
+!coordination/bus/*/.gitkeep
+
 # Runtime vector-store sync state
 data/trade_memory/vector_sync_state.json
