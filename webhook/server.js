@@ -3,7 +3,6 @@
 
 const http = require("http");
 const fs = require("fs");
-const path = require("path");
 const { URL } = require("url");
 const { computeLifecycleLatest, stateFromEvent } = require("./lifecycle");
 const { evaluateDecision } = require("./decision");
@@ -18,6 +17,19 @@ const {
   MACRO_ANALYZER_URL,
   CONTRACT_VERSION
 } = require("./macro_integration");
+const {
+  maybeNumber,
+  normalizePayload,
+  validatePayload,
+  inferMismatchFlags,
+  buildAgentPacket
+} = require("../lib/packet");
+const {
+  latestPath,
+  writeEvent,
+  readRecentEvents,
+  writeAgentInbox: writeAgentInboxToDir
+} = require("../lib/events_store");
 
 const PORT = Number(process.env.PORT || 8787);
 const AGENT_FORWARD_URL = process.env.AGENT_FORWARD_URL || "";
@@ -25,40 +37,6 @@ const AGENT_FORWARD_BEARER = process.env.AGENT_FORWARD_BEARER || "";
 const AGENT_INBOX_DIR = process.env.AGENT_INBOX_DIR || "";
 const CORS_ALLOW_ORIGIN = process.env.CORS_ALLOW_ORIGIN || "*";
 const MAX_EVENTS_READ = Number(process.env.MAX_EVENTS_READ || 200);
-const MAX_EVENTS_FILE_BYTES = Number(process.env.MAX_EVENTS_FILE_BYTES || 5_000_000);
-
-const REQUIRED_FIELDS = [
-  "symbol",
-  "timeframe",
-  "bar_time",
-  "setup_id",
-  "pattern_type",
-  "setup_stage",
-  "pattern_bias",
-  "pattern_confirmed",
-  "fib_significance",
-  "macd_hist",
-  "squeeze_release",
-  "rsi",
-  "score",
-  "confluence",
-  "bias"
-];
-
-const workspaceRoot = process.cwd();
-const eventsDir = path.join(workspaceRoot, "webhook", "data");
-const eventsPath = path.join(eventsDir, "events.ndjson");
-const eventsBackupPath = path.join(eventsDir, "events.prev.ndjson");
-const latestPath = path.join(eventsDir, "latest.json");
-
-function ensureDataDir() {
-  fs.mkdirSync(eventsDir, { recursive: true });
-}
-
-function ensureInboxDir() {
-  if (!AGENT_INBOX_DIR) return;
-  fs.mkdirSync(AGENT_INBOX_DIR, { recursive: true });
-}
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -172,103 +150,6 @@ function parsePlainText(raw) {
   };
 }
 
-function maybeNumber(value, fallback = null) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function normalizePayload(payload) {
-  return {
-    ...payload,
-    score: maybeNumber(payload.score, 0),
-    rsi: maybeNumber(payload.rsi),
-    macd_hist: maybeNumber(payload.macd_hist),
-    close: maybeNumber(payload.close),
-    confluence: payload.confluence || "LOW",
-    bias: payload.bias || "NEUTRAL",
-    auto_pattern: payload.auto_pattern || "none",
-    auto_pattern_conf: maybeNumber(payload.auto_pattern_conf, 0),
-    setup_id: String(payload.setup_id || "setup_unknown"),
-    symbol: String(payload.symbol || "UNKNOWN")
-  };
-}
-
-function validatePayload(payload) {
-  const missing = [];
-  for (const key of REQUIRED_FIELDS) {
-    if (payload[key] === undefined || payload[key] === null || payload[key] === "") {
-      missing.push(key);
-    }
-  }
-  return missing;
-}
-
-function inferMismatchFlags(payload) {
-  const flags = [];
-  if (!payload.taxonomy_version) flags.push("taxonomy_incomplete");
-  if (!payload.pattern_type || payload.pattern_type === "other") flags.push("pattern_unspecified");
-  if (payload.fib_significance === "NONE") flags.push("no_fib_confluence");
-  if (payload.pattern_confirmed === false && payload.confluence === "HIGH") flags.push("confidence_vs_pattern_conflict");
-  if (payload.pattern_bias === "bullish" && payload.bias === "BEARISH") flags.push("bias_conflict");
-  if (payload.pattern_bias === "bearish" && payload.bias === "BULLISH") flags.push("bias_conflict");
-  return flags;
-}
-
-function buildAgentPacket(event) {
-  const p = event.payload;
-  const reasons = [];
-  if (p.pattern_confirmed) reasons.push("manual_pattern_confirmed");
-  if (p.auto_pattern && p.auto_pattern !== "none") reasons.push(`auto_pattern:${p.auto_pattern}`);
-  if (p.fib_significance && p.fib_significance !== "NONE") reasons.push(`fib:${p.fib_significance}`);
-  if (p.near_entry) reasons.push("near_entry");
-  if (p.squeeze_release) reasons.push("squeeze_release");
-  if (p.macd_bull_expand || p.macd_bear_expand) reasons.push("macd_expand");
-
-  return {
-    source: "tradingview_webhook",
-    received_at: event.received_at,
-    event_id: event.event_id,
-    setup_id: p.setup_id,
-    symbol: p.symbol,
-    timeframe: p.timeframe,
-    stage: p.setup_stage,
-    bias: p.bias,
-    confluence: p.confluence,
-    score: p.score,
-    pattern: {
-      manual_type: p.pattern_type,
-      manual_bias: p.pattern_bias,
-      manual_confirmed: !!p.pattern_confirmed,
-      auto_type: p.auto_pattern,
-      auto_conf: p.auto_pattern_conf,
-      auto_bias: p.auto_pattern_bias || "neutral",
-      auto_aligned: !!p.auto_pattern_aligned
-    },
-    levels: {
-      entry: p.entry_price,
-      stop: p.stop_price,
-      tp1: p.tp1_price,
-      tp2: p.tp2_price,
-      tp3: p.tp3_price,
-      near_entry: !!p.near_entry,
-      hit_entry: !!p.hit_entry,
-      hit_stop: !!p.hit_stop,
-      hit_tp1: !!p.hit_tp1,
-      hit_tp2: !!p.hit_tp2,
-      hit_tp3: !!p.hit_tp3
-    },
-    momentum: {
-      rsi: p.rsi,
-      macd_hist: p.macd_hist,
-      squeeze_release: !!p.squeeze_release
-    },
-    mismatch_flags: event.mismatch_flags,
-    missing_fields: event.missing_fields,
-    accepted: event.accepted,
-    reasons
-  };
-}
-
 async function forwardToAgent(event, agentPacket) {
   if (!AGENT_FORWARD_URL) return { forwarded: false };
   const headers = { "Content-Type": "application/json" };
@@ -294,54 +175,8 @@ async function forwardToAgent(event, agentPacket) {
   };
 }
 
-function writeEvent(event) {
-  ensureDataDir();
-  rotateEventsIfNeeded();
-  fs.appendFileSync(eventsPath, JSON.stringify(event) + "\n", "utf8");
-  fs.writeFileSync(latestPath, JSON.stringify(event, null, 2), "utf8");
-}
-
-function rotateEventsIfNeeded() {
-  if (!fs.existsSync(eventsPath)) return;
-  const size = fs.statSync(eventsPath).size;
-  if (size < MAX_EVENTS_FILE_BYTES) return;
-
-  if (fs.existsSync(eventsBackupPath)) {
-    fs.unlinkSync(eventsBackupPath);
-  }
-  fs.renameSync(eventsPath, eventsBackupPath);
-}
-
 function writeAgentInbox(agentPacket) {
-  if (!AGENT_INBOX_DIR) return null;
-  ensureInboxDir();
-  const safeSetup = agentPacket.setup_id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64);
-  const filename = `${Date.now()}_${safeSetup}.json`;
-  const fullPath = path.join(AGENT_INBOX_DIR, filename);
-  fs.writeFileSync(fullPath, JSON.stringify(agentPacket, null, 2), "utf8");
-  return fullPath;
-}
-
-function parseNdjsonLines(raw) {
-  return raw
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => {
-      try {
-        return JSON.parse(line);
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean);
-}
-
-function readRecentEvents(limit = 50, setupId = "") {
-  if (!fs.existsSync(eventsPath)) return [];
-  const raw = fs.readFileSync(eventsPath, "utf8");
-  const events = parseNdjsonLines(raw);
-  const filtered = setupId ? events.filter((e) => e?.payload?.setup_id === setupId) : events;
-  return filtered.slice(-limit).reverse();
+  return writeAgentInboxToDir(agentPacket, AGENT_INBOX_DIR);
 }
 
 function withCors(res) {
