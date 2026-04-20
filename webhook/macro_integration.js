@@ -11,18 +11,50 @@
  * down, all calls no-op. Tactical decisions proceed without the macro gate.
  */
 
+const { getAssetClass } = require("../lib/asset_class");
+const { computeSizingFromMacroView } = require("../lib/macro_sizing");
+
 const MACRO_ANALYZER_URL = process.env.MACRO_ANALYZER_URL || "";
 const MACRO_REQUEST_TIMEOUT_MS = Number(process.env.MACRO_REQUEST_TIMEOUT_MS || 3000);
 const CONTRACT_VERSION = "1.0.0";
 
+const DEFAULT_PARTIAL_WEIGHTS = [0.5, 0.25, 0.25];
+
 /**
- * Fetch the current macro view for a symbol.
+ * Scale-out weights for pnl_r accounting. See computeWeightedPnlR below.
+ * Env: MACRO_PNL_PARTIAL_WEIGHTS="w1,w2,w3" (must sum to 1.0).
+ */
+function getPartialWeights() {
+  const raw = process.env.MACRO_PNL_PARTIAL_WEIGHTS;
+  if (!raw) return DEFAULT_PARTIAL_WEIGHTS;
+  const parts = raw.split(",").map((s) => Number(s.trim()));
+  if (parts.length !== 3 || parts.some((x) => !Number.isFinite(x) || x < 0)) {
+    console.warn(`[macro_integration] invalid MACRO_PNL_PARTIAL_WEIGHTS="${raw}" — falling back to default`);
+    return DEFAULT_PARTIAL_WEIGHTS;
+  }
+  const sum = parts[0] + parts[1] + parts[2];
+  if (Math.abs(sum - 1.0) > 1e-6) {
+    console.warn(`[macro_integration] MACRO_PNL_PARTIAL_WEIGHTS sums to ${sum} (must be 1.0) — falling back to default`);
+    return DEFAULT_PARTIAL_WEIGHTS;
+  }
+  return parts;
+}
+
+/**
+ * Fetch the current macro view for a symbol. Optionally accepts an
+ * explicit asset_class; if omitted, it's inferred from `lib/asset_class`
+ * and passed as a query param to give macro-analyzer a routing hint.
+ *
  * Returns null on any failure — tactical proceeds unfiltered.
  */
-async function fetchMacroView(symbol) {
+async function fetchMacroView(symbol, explicitAssetClass) {
   if (!MACRO_ANALYZER_URL || !symbol) return null;
 
-  const url = `${MACRO_ANALYZER_URL.replace(/\/$/, "")}/positioning/view?asset=${encodeURIComponent(symbol)}`;
+  const inferred = explicitAssetClass || getAssetClass(symbol);
+  const base = MACRO_ANALYZER_URL.replace(/\/$/, "");
+  const qs = new URLSearchParams({ asset: String(symbol) });
+  if (inferred) qs.set("asset_class", inferred);
+  const url = `${base}/positioning/view?${qs.toString()}`;
 
   try {
     const controller = new AbortController();
@@ -52,60 +84,142 @@ async function fetchMacroView(symbol) {
 }
 
 /**
+ * Derive a UI-facing summary of the macro gating outcome.
+ * Downstream consumers (dashboards, LLM prompts) should read this instead
+ * of re-deriving status from reason_codes.
+ */
+function summarizeMacro(macroView, reasons, sizeMultiplier) {
+  const reasonList = Array.isArray(reasons) ? reasons : [];
+  if (!macroView || typeof macroView !== "object") {
+    return {
+      consulted: false,
+      direction: null,
+      agreement: MACRO_ANALYZER_URL ? "unavailable" : "not_consulted",
+      size_effect: "none",
+      size_multiplier: null
+    };
+  }
+
+  const direction = macroView.direction || "unknown";
+  let agreement;
+  if (reasonList.includes("macro_blocks_long") || reasonList.includes("macro_blocks_short")) {
+    agreement = "disagree";
+  } else if (reasonList.includes("macro_aligns_long") || reasonList.includes("macro_aligns_short")) {
+    agreement = "agree";
+  } else if (direction === "unknown") {
+    agreement = "unknown";
+  } else {
+    agreement = "neutral";
+  }
+
+  let sizeEffect = "none";
+  const boostReason = reasonList.find((r) => typeof r === "string" && r.startsWith("macro_size_boost:"));
+  const capReason = reasonList.find((r) => typeof r === "string" && r.startsWith("macro_size_cap:"));
+  if (boostReason) sizeEffect = "boost";
+  else if (capReason) sizeEffect = "cap";
+  else if (reasonList.includes("macro_size_hold")) sizeEffect = "hold";
+
+  return {
+    consulted: true,
+    direction,
+    agreement,
+    size_effect: sizeEffect,
+    size_multiplier: Number.isFinite(sizeMultiplier) ? sizeMultiplier : null
+  };
+}
+
+/**
  * Apply macro gate to a decision.
  *
- * Rules:
- *  - If macroView is null (service unavailable), return decision unchanged
- *  - If macro direction is "unknown", return decision unchanged
- *  - If decision is LONG but macro blocks longs → downgrade to WAIT
- *  - If decision is SHORT but macro blocks shorts → downgrade to WAIT
- *  - If macro aligns but suggests size_multiplier < 1, annotate (decision stays)
- *  - Always add a reason_code documenting the macro gate outcome
+ * Rules (vocabulary matches the rest of the repo — `macro_blocks_*`,
+ * `macro_aligns_*`, `macro_no_view`, `macro_direction_<dir>` for the
+ * non-directional view variants, plus `macro_size_boost:<x>|hold|cap:<x>`
+ * for sizing effects):
+ *  - macroView === null             → return unchanged + macro_no_view if URL set
+ *  - direction === "unknown"        → add macro_no_view; no sizing
+ *  - direction in {neutral,mixed,watchful} → add macro_direction_<dir>
+ *                                     (still honors allow_* and sizing)
+ *  - LONG + allow_long=false        → downgrade to WAIT + macro_blocks_long
+ *  - SHORT + allow_short=false      → downgrade to WAIT + macro_blocks_short
+ *  - LONG + allow_long=true         → macro_aligns_long
+ *  - SHORT + allow_short=true       → macro_aligns_short
+ *  - Sizing (lib/macro_sizing.js) runs after the direction gate. Boost on
+ *    agreement, cap on explicit risk-reduction (base < 1.0 even without
+ *    agreement — e.g. watchful -> 0.5). Attaches decision.size_multiplier
+ *    and a matching size reason.
+ *  - decision.macro_summary is always set.
  */
 function applyMacroGate(decision, macroView) {
   if (!decision) return decision;
-  if (!macroView) return decision;
-  if (macroView.direction === "unknown") {
+  if (!macroView) {
+    const reasons = [...(decision.reason_codes || [])];
+    if (MACRO_ANALYZER_URL) reasons.push("macro_no_view");
     return {
       ...decision,
-      reason_codes: [...(decision.reason_codes || []), "macro_no_view"],
+      reason_codes: [...new Set(reasons)],
+      macro_summary: summarizeMacro(null, reasons, null)
+    };
+  }
+
+  const direction = macroView.direction || "unknown";
+  const gate = macroView.gate_suggestion || {};
+  const action = decision.action;
+  const reasons = [...(decision.reason_codes || [])];
+  let mutatedAction = action;
+  let mutatedRiskTier = decision.risk_tier;
+  let mutatedConfidence = decision.confidence;
+
+  if (direction === "unknown") {
+    reasons.push("macro_no_view");
+    return {
+      ...decision,
+      reason_codes: [...new Set(reasons)],
       macro_context: {
         direction: "unknown",
         confidence: 0,
         gate_applied: false
-      }
+      },
+      macro_summary: summarizeMacro(macroView, reasons, null)
     };
   }
 
-  const gate = macroView.gate_suggestion || {};
-  const action = decision.action;
-  const mutatedReasons = [...(decision.reason_codes || [])];
-  let mutatedAction = action;
-  let mutatedRiskTier = decision.risk_tier;
-  let mutatedConfidence = decision.confidence;
+  // Non-directional views (neutral / mixed / watchful) get an annotation.
+  if (direction === "neutral" || direction === "mixed" || direction === "watchful") {
+    reasons.push(`macro_direction_${direction}`);
+  }
 
   if (action === "LONG" && gate.allow_long === false) {
     mutatedAction = "WAIT";
     mutatedRiskTier = "BLOCKED";
     mutatedConfidence = "LOW";
-    mutatedReasons.push("macro_blocks_long");
+    reasons.push("macro_blocks_long");
   } else if (action === "SHORT" && gate.allow_short === false) {
     mutatedAction = "WAIT";
     mutatedRiskTier = "BLOCKED";
     mutatedConfidence = "LOW";
-    mutatedReasons.push("macro_blocks_short");
-  } else if (action === "LONG" && gate.allow_long === true) {
-    mutatedReasons.push("macro_aligns_long");
-  } else if (action === "SHORT" && gate.allow_short === true) {
-    mutatedReasons.push("macro_aligns_short");
+    reasons.push("macro_blocks_short");
+  } else if (action === "LONG" && gate.allow_long === true && direction === "bullish") {
+    reasons.push("macro_aligns_long");
+  } else if (action === "SHORT" && gate.allow_short === true && direction === "bearish") {
+    reasons.push("macro_aligns_short");
   }
 
-  return {
+  // Sizing — delegated to macro_sizing.js. Only fires on LONG/SHORT after
+  // the direction gate (not on WAIT/BLOCKED).
+  const sizing = computeSizingFromMacroView(macroView, mutatedAction);
+  let sizeMultiplier = null;
+  if (sizing.size_multiplier !== null) {
+    sizeMultiplier = sizing.size_multiplier;
+    reasons.push(sizing.reason);
+  }
+
+  const dedup = [...new Set(reasons)];
+  const next = {
     ...decision,
     action: mutatedAction,
     confidence: mutatedConfidence,
     risk_tier: mutatedRiskTier,
-    reason_codes: [...new Set(mutatedReasons)],
+    reason_codes: dedup,
     macro_context: {
       direction: macroView.direction,
       confidence: macroView.confidence,
@@ -114,8 +228,11 @@ function applyMacroGate(decision, macroView) {
       size_multiplier: gate.size_multiplier ?? 1.0,
       gate_applied: true,
       gate_notes: gate.notes || ""
-    }
+    },
+    macro_summary: summarizeMacro(macroView, dedup, sizeMultiplier)
   };
+  if (sizeMultiplier !== null) next.size_multiplier = sizeMultiplier;
+  return next;
 }
 
 /**
@@ -168,12 +285,85 @@ async function postTradeOutcome(outcomeReport) {
 }
 
 /**
- * Build an outcome report from a closed setup + its lifecycle + decision history.
+ * Compute R-multiple under the per-TP scale-out model. Each TP closes a
+ * fraction of the position per `MACRO_PNL_PARTIAL_WEIGHTS` (default
+ * 0.5/0.25/0.25 for tp1/tp2/tp3). The remaining fraction exits at the
+ * most-advanced level reached: tp3 on a full winner, the last hit TP on
+ * a partial close, or the stop on a stop-out after partial profits.
  *
- * Called when a setup transitions to "closed" or "invalidated".
+ * Scenarios (r_i = sign * (tp_i - entry) / |entry - stop|):
+ *   - hit_stop, no TPs:                -1.0
+ *   - hit_stop after hit_tp1:          w1*r1 + (1-w1)*(-1.0)
+ *   - hit_stop after hit_tp1+hit_tp2:  w1*r1 + w2*r2 + (1-w1-w2)*(-1.0)
+ *   - hit_tp1 (closed at tp1):         1.0 * r1
+ *   - hit_tp2 (no tp3):                w1*r1 + (1-w1)*r2
+ *   - hit_tp3 (full winner):           w1*r1 + w2*r2 + w3*r3
+ *
+ * direction: "long" | "short". Returns null if levels insufficient or
+ * direction not actionable. Returns -1.0 for a stop-out when entry/stop
+ * are missing (calibrated risk unit).
  */
-function buildOutcomeReport({ setupId, symbol, direction, entryTimestamp, exitTimestamp, pnlR, macroViewAtEntry }) {
-  const outcome = pnlR > 0.05 ? "win" : pnlR < -0.05 ? "loss" : "breakeven";
+function computeWeightedPnlR({ direction, entry, stop, tp1, tp2, tp3, hit_stop, hit_tp1, hit_tp2, hit_tp3 } = {}) {
+  if (!Number.isFinite(entry) || !Number.isFinite(stop)) {
+    return hit_stop ? -1.0 : null;
+  }
+  const risk = Math.abs(entry - stop);
+  if (risk <= 0) return null;
+
+  const sign = direction === "long" ? 1 : direction === "short" ? -1 : 0;
+  if (sign === 0) return null;
+
+  const [w1, w2, w3] = getPartialWeights();
+  const r = (price) => (sign * (price - entry)) / risk;
+  const r1 = hit_tp1 && Number.isFinite(tp1) ? r(tp1) : null;
+  const r2 = hit_tp2 && Number.isFinite(tp2) ? r(tp2) : null;
+  const r3 = hit_tp3 && Number.isFinite(tp3) ? r(tp3) : null;
+
+  if (hit_stop) {
+    let pnl = 0;
+    let consumed = 0;
+    if (r1 !== null) { pnl += w1 * r1; consumed += w1; }
+    if (r2 !== null) { pnl += w2 * r2; consumed += w2; }
+    const remaining = Math.max(0, 1 - consumed);
+    pnl += remaining * -1.0;
+    return pnl;
+  }
+
+  if (r3 !== null) return w1 * (r1 ?? 0) + w2 * (r2 ?? 0) + w3 * r3;
+  if (r2 !== null) {
+    const consumed = r1 !== null ? w1 : 0;
+    const partial = r1 !== null ? w1 * r1 : 0;
+    return partial + (1 - consumed) * r2;
+  }
+  if (r1 !== null) return r1;
+  return null;
+}
+
+/**
+ * Build an outcome report from a closed setup + its lifecycle + decision
+ * history. Two call shapes:
+ *
+ *   1) { setupId, symbol, direction, entryTimestamp, exitTimestamp,
+ *        pnlR, macroViewAtEntry }
+ *      Legacy path. Caller supplies pnlR directly. outcome is classified
+ *      by the traditional threshold.
+ *
+ *   2) { setupId, symbol, direction, entryTimestamp, exitTimestamp,
+ *        levels: { entry, stop, tp1, tp2, tp3, hit_stop, hit_tp1, ... },
+ *        macroViewAtEntry }
+ *      Weighted path. pnlR is computed via computeWeightedPnlR under the
+ *      per-TP scale-out model. Preferred when the caller has level data.
+ *
+ * `outcome` ∈ {"win"|"loss"|"breakeven"}. Breakeven threshold of ±0.05R
+ * is preserved from the prior implementation.
+ */
+function buildOutcomeReport({ setupId, symbol, direction, entryTimestamp, exitTimestamp, pnlR, levels, macroViewAtEntry }) {
+  let resolvedPnl = pnlR;
+  if ((resolvedPnl === undefined || resolvedPnl === null) && levels) {
+    resolvedPnl = computeWeightedPnlR({ direction, ...levels });
+  }
+  const safePnl = Number.isFinite(resolvedPnl) ? resolvedPnl : 0;
+  const outcome = safePnl > 0.05 ? "win" : safePnl < -0.05 ? "loss" : "breakeven";
   return {
     trade_id: setupId,
     symbol,
@@ -181,7 +371,7 @@ function buildOutcomeReport({ setupId, symbol, direction, entryTimestamp, exitTi
     entry_timestamp: entryTimestamp,
     exit_timestamp: exitTimestamp,
     outcome,
-    pnl_r: pnlR,
+    pnl_r: safePnl,
     macro_view_at_entry: macroViewAtEntry || {
       direction: "unknown",
       confidence: 0,
@@ -272,6 +462,10 @@ module.exports = {
   applyMacroGate,
   postTradeOutcome,
   buildOutcomeReport,
+  computeWeightedPnlR,
+  getPartialWeights,
+  DEFAULT_PARTIAL_WEIGHTS,
+  summarizeMacro,
   storeMacroViewAtEntry,
   getMacroViewAtEntry,
   clearMacroViewEntrySnapshots,

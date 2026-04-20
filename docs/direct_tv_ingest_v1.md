@@ -90,7 +90,7 @@ Graduating raw mode out of stub status requires:
 
 1. JS ports of EMA / RSI / MACD / TTM squeeze and the seven pattern detectors that match the Pine implementation in `tradingview/structure_confluence_engine_v1.pine`.
 2. A Pine-vs-JS reconciliation harness with <0.5% drift on a rolling 100-bar window per symbol/timeframe.
-3. A spec doc at `docs/raw_bars_compute_v1.md` describing the JS-side computation contract.
+3. A spec doc describing the JS-side computation contract (tentatively named `raw_bars_compute_v1.md`, to be added under `docs/` when item 1 ships).
 
 ## Source tagging
 
