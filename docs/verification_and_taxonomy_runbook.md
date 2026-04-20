@@ -84,3 +84,19 @@ Reject payload if any are missing:
 4. Tighten taxonomy and script thresholds.
 5. Promote to production routing.
 
+## 8) Verification Suites
+
+Every integration ships with a `scripts/verify_*.js` script. All must
+pass before merging to main. Run them individually or as a batch:
+
+| script | covers |
+|---|---|
+| `verify_webhook_parity.js` | `agent_packet` byte-equivalent against golden snapshot |
+| `verify_bus_contract.js` | perception-bus envelope schema + registry |
+| `verify_tv_direct.js` | tv_direct ingest lane + adapters |
+| `verify_bus_watcher.js` | bus peer polling + request lifecycle |
+| `verify_macro_sizing.js` | `lib/macro_sizing.computeSizingFromMacroView` agreement-boost formula |
+| `verify_partial_fill_pnl.js` | per-TP weighted `pnl_r` formula under the scale-out model |
+| `verify_macro_gate.js` | `webhook/macro_integration.applyMacroGate` across the six-value direction enum + sizing + macro_summary |
+| `verify_docs.js` | doc references resolve; every listed verify script exists |
+
