@@ -2,6 +2,45 @@
 
 The perception bus is the request/response channel between a top-tier reasoning LLM and one or more **perception agents**. This repository implements the `ta_charts` perception agent (technical analysis); other roles (`macro_research`, `orderflow`, `cross_asset`, `calendar`, `sentiment`, `fundamentals`) are reserved slots — see `docs/perception_agent_registry_v1.md`.
 
+## Watcher
+
+`scripts/bus_watcher.js --role <agent_role>` is the long-running claim/dispatch process for a given perception role. One watcher per role.
+
+```
+node scripts/bus_watcher.js --role ta_charts
+node scripts/bus_watcher.js --role ta_charts --once              # single scan then exit
+node scripts/bus_watcher.js --role ta_charts --poll-ms 2000      # slower polling
+node scripts/bus_watcher.js --role ta_charts --require-payload   # fail instead of queue
+```
+
+### Dispatch rules (role `ta_charts`)
+
+The `ta_charts` watcher handles two shapes of inbound request:
+
+1. **Auto-ingest.** If `envelope.payload.pine_snapshot` is present and contains a valid Pine field set (`symbol`, `timeframe`, `bar_time`, …), the watcher calls `tv_direct.ingest(snap, {source: "tv_direct_pine", request_envelope: envelope})` inline. On success the original request is moved to `completed/` and the response envelope is published (outbox file + HTTP to `BUS_PEERS[from_agent.agent_role]`).
+
+2. **Queue-for-Claude.** If there is no embedded snapshot, the request requires a live TradingView read from a Claude coworking session. The watcher writes a marker file at `tv_direct/pending/<envelope_id>.json` and leaves the original in `processing/`. A separate Claude session is expected to pick up the marker, call `tv_direct.ingest(...)`, and move the original from `processing/` to `completed/`.
+
+Pass `--require-payload` to force the watcher to fail live-read requests immediately (reason `needs_live_read`) — useful when no Claude session is attached, e.g. in CI.
+
+### Lifecycle on success
+
+```
+inbox/<file>.json  ──► processing/<file>.json  ──► completed/<file>.json
+                                                    outbox/<response>.json (always)
+```
+
+### Lifecycle on failure
+
+```
+inbox/<file>.json  ──► processing/<file>.json  ──► failed/<file>.json
+                                                    failed/<file>.err.txt (reason)
+```
+
+### Adding dispatchers for new roles
+
+Each perception agent watcher can reuse `scanOnce` from `scripts/bus_watcher.js` by exporting its own `dispatchFor<role>` and wiring it at the top of `dispatch()`. For MVP only `ta_charts` is wired.
+
 ## Transport
 
 Two interchangeable transports, used together:
